@@ -4,12 +4,20 @@ package randomizedpaxos
 import (
 	"container/heap"
 	"randomizedpaxosproto"
+	"sort"
 	"state"
 )
 
+type UniqueCommand struct {
+	senderId int32
+	term 	 int32
+	index	 int32
+	time	 int64
+}
+
 type ExtendedPriorityQueue struct {
 	pq 			PriorityQueue
-	itemLoc		map[state.Command]*Item
+	itemLoc		map[UniqueCommand]*Item
 }
 
 func (extPQ ExtendedPriorityQueue) push(entry randomizedpaxosproto.Entry) {
@@ -22,25 +30,76 @@ func (extPQ ExtendedPriorityQueue) push(entry randomizedpaxosproto.Entry) {
 		entry: entry,
 		heapIndex: -1, // initial heapIndex doesn't matter
 	}
-	if val, ok := extPQ.itemLoc[item.entry.Data]; ok {
-		if cmp(item, val) {
+
+	req := UniqueCommand {
+		senderId: entry.SenderId,
+		term: entry.Term,
+		index: entry.Index,
+		time: entry.Timestamp,
+	}
+	
+	if val, ok := extPQ.itemLoc[req]; ok {
+		if cmpItem(item, val) {
 			heap.Remove(&extPQ.pq, val.heapIndex)
 			extPQ.pq.Push(item)
-			extPQ.itemLoc[item.entry.Data] = item
+			extPQ.itemLoc[req] = item
 		}
+	}
+}
+
+func (extPQ ExtendedPriorityQueue) remove(entry randomizedpaxosproto.Entry) {
+	req := UniqueCommand {
+		senderId: entry.SenderId,
+		term: entry.Term,
+		index: entry.Index,
+		time: entry.Timestamp,
+	}
+
+	if val, ok := extPQ.itemLoc[req]; ok {
+		heap.Remove(&extPQ.pq, val.heapIndex)
+		delete(extPQ.itemLoc, req)
 	}
 }
 
 func (extPQ ExtendedPriorityQueue) pop() any {
 	item := heap.Pop(&extPQ.pq).(*Item)
-	delete(extPQ.itemLoc, item.entry.Data)
+
+	req := UniqueCommand {
+		senderId: item.entry.SenderId,
+		term: item.entry.Term,
+		index: item.entry.Index,
+		time: item.entry.Timestamp,
+	}
+
+	delete(extPQ.itemLoc, req)
 	return item
+}
+
+func (extPQ ExtendedPriorityQueue) peek() *Item {
+	return extPQ.pq[0]
+}
+
+func (extPQ ExtendedPriorityQueue) clearLeaderEntries(){
+	for len(extPQ.pq) > 0 && extPQ.peek().entry.Term != -1 {
+		extPQ.pop()
+	}
+}
+
+func (extPQ ExtendedPriorityQueue) extractList() []randomizedpaxosproto.Entry {
+	var list []randomizedpaxosproto.Entry
+	for i := 0; i < len(extPQ.pq); i++ {
+		list = append(list, extPQ.pq[i].entry)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return cmpEntry(list[i], list[j])
+	})
+	return list
 }
 
 func newExtendedPriorityQueue() ExtendedPriorityQueue {
 	var extPQ ExtendedPriorityQueue
 	extPQ.pq = make(PriorityQueue, 0)
-	extPQ.itemLoc = make(map[state.Command]*Item, 0)
+	extPQ.itemLoc = make(map[UniqueCommand]*Item, 0)
 	heap.Init(&extPQ.pq)
 	return extPQ
 }
@@ -66,22 +125,26 @@ type PriorityQueue []*Item
 
 func (pq PriorityQueue) Len() int { return len(pq) }
 
-func cmp(a, b *Item) bool {
-	if a.entry.Term != b.entry.Term {
-		return a.entry.Term > b.entry.Term
+func cmpEntry(a, b randomizedpaxosproto.Entry) bool {
+	if a.Timestamp != b.Timestamp {
+		return a.Timestamp < b.Timestamp
 	}
-	if a.entry.Index != b.entry.Index {
-		return a.entry.Index < b.entry.Index
-	}
-	if a.entry.Timestamp != b.entry.Timestamp {
-		return a.entry.Timestamp < b.entry.Timestamp
-	}
-	return a.entry.SenderId < b.entry.SenderId
+	return a.SenderId < b.SenderId
+	// if a.Term != b.Term {
+	// 	return a.Term > b.Term
+	// }
+	// if a.Index != b.Index {
+	// 	return a.Index < b.Index
+	// }
+}
+
+func cmpItem(a, b *Item) bool {
+	return cmpEntry(a.entry, b.entry)
 }
 
 func (pq PriorityQueue) Less(i, j int) bool {
 	// We want Pop to give us the highest, not lowest, priority so we use greater than here.
-	return cmp(pq[i], pq[j])
+	return cmpItem(pq[i], pq[j])
 }
 
 func (pq PriorityQueue) Swap(i, j int) {

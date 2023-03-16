@@ -8,6 +8,7 @@ import (
 	"genericsmr"
 	"genericsmrproto"
 	"io"
+	"math/rand"
 	"randomizedpaxosproto"
 	"sort"
 	"state"
@@ -66,7 +67,7 @@ type Replica struct {
 
 	// used to ignore entries in the past
 	replicateEntriesCounter			rpcCounter
-	requestVoteCounter				rpcCounter
+	requestVoteCounter				rpcCounter // not necessary since the term already determines a unique entry
 	benOrBroadcastCounter			rpcCounter
 	benOrConsensusCounter			rpcCounter
 	infoBroadcastCounter			rpcCounter
@@ -89,8 +90,16 @@ type Replica struct {
 	commitIndex						[]int // highest known commit index for each replica
 	currentTimer					time.Time
 	highestTimestamp				[]int64 // highest timestamp seen from each replica (used to ignore old requests)
+	votesReceived					int
+	votedFor						int
+	requestVoteEntries				[]randomizedpaxosproto.Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
+	// requestVoteBenOrIndex			int
+	// requestVotePreparedIndex		int
 
 	clientWriters      				map[uint32]*bufio.Writer
+	heartbeatTimer					*time.Timer
+	electionTimer					*time.Timer
+	benOrStartWaitTimer				*time.Timer
 }
 
 
@@ -187,7 +196,13 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		commitIndex: make([]int, 0),
 		currentTimer: time.Now(),
 		highestTimestamp: make([]int64, 0),
-		clientWriters: make(map[uint32]*bufio.Writer)}
+		votesReceived: 0,
+		votedFor: -1,
+		requestVoteEntries: make([]randomizedpaxosproto.Entry, 0),
+		clientWriters: make(map[uint32]*bufio.Writer),
+		heartbeatTimer: nil,
+		electionTimer: nil,
+		benOrStartWaitTimer: nil}
 
 	r.Durable = durable
 
@@ -241,6 +256,34 @@ func min(a, b int) int {
         return a
     }
     return b
+}
+
+func max(a, b int) int {
+	if a > b { 
+		return a
+	}
+	return b
+}
+
+// called when the timer has not yet fired
+func (r *Replica) resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
+		t = time.NewTimer(d)
+		return
+	}
+	if !t.Stop() {
+		<-t.C
+	}
+	t.Reset(d)
+}
+
+// called when the timer has already fired
+func (r *Replica) setTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
+		t = time.NewTimer(d)
+		return
+	}
+	t.Reset(d)
 }
 
 /* Main event processing loop */
@@ -305,93 +348,107 @@ func (r *Replica) run() {
 		}
 
 		select {
-		case client := <-r.RegisterClientIdChan:
-			r.registerClient(client.ClientId, client.Reply)
+			case client := <-r.RegisterClientIdChan:
+				r.registerClient(client.ClientId, client.Reply)
 
-		case <-clockChan:
-			//activate the new proposals channel
-			onOffProposeChan = r.ProposeChan
-			break
+			case <-clockChan:
+				//activate the new proposals channel
+				onOffProposeChan = r.ProposeChan
+				break
 
-		case propose := <-onOffProposeChan:
-			//got a Propose from a client
-			dlog.Printf("Proposal with op %d\n", propose.Command.Op)
-			r.handlePropose(propose)
-			//deactivate the new proposals channel to prioritize the handling of protocol messages
-			if MAX_BATCH > 100 {
-				onOffProposeChan = nil
-			}
-			break
+			case propose := <-onOffProposeChan:
+				//got a Propose from a client
+				dlog.Printf("Proposal with op %d\n", propose.Command.Op)
+				r.handlePropose(propose)
+				//deactivate the new proposals channel to prioritize the handling of protocol messages
+				if MAX_BATCH > 100 {
+					onOffProposeChan = nil
+				}
+				break
 
-		case replicateEntriesS := <-r.replicateEntriesChan:
-			replicateEntries := replicateEntriesS.(*randomizedpaxosproto.ReplicateEntries)
-			//got a ReplicateEntries message
-			dlog.Printf("Received ReplicateEntries from replica %d, for instance %d\n", replicateEntries.SenderId, replicateEntries.Term)
-			r.handleReplicateEntries(replicateEntries)
-			break
+			case replicateEntriesS := <-r.replicateEntriesChan:
+				replicateEntries := replicateEntriesS.(*randomizedpaxosproto.ReplicateEntries)
+				//got a ReplicateEntries message
+				dlog.Printf("Received ReplicateEntries from replica %d, for instance %d\n", replicateEntries.SenderId, replicateEntries.Term)
+				r.handleReplicateEntries(replicateEntries)
+				break
 
-		case replicateEntriesReplyS := <-r.replicateEntriesReplyChan:
-			replicateEntriesReply := replicateEntriesReplyS.(*randomizedpaxosproto.ReplicateEntriesReply)
-			//got a ReplicateEntriesReply message
-			dlog.Printf("Received ReplicateEntriesReply from replica %d\n", replicateEntriesReply.Term)
-			r.handleReplicateEntriesReply(replicateEntriesReply)
-			break
+			case replicateEntriesReplyS := <-r.replicateEntriesReplyChan:
+				replicateEntriesReply := replicateEntriesReplyS.(*randomizedpaxosproto.ReplicateEntriesReply)
+				//got a ReplicateEntriesReply message
+				dlog.Printf("Received ReplicateEntriesReply from replica %d\n", replicateEntriesReply.Term)
+				r.handleReplicateEntriesReply(replicateEntriesReply)
+				break
 
-		case requestVoteS := <-r.requestVoteChan:
-			requestVote := requestVoteS.(*randomizedpaxosproto.RequestVote)
-			//got a RequestVote message
-			dlog.Printf("Received RequestVote from replica %d, for instance %d\n", requestVote.SenderId, requestVote.Term)
-			r.handleRequestVote(requestVote)
-			break
+			case requestVoteS := <-r.requestVoteChan:
+				requestVote := requestVoteS.(*randomizedpaxosproto.RequestVote)
+				//got a RequestVote message
+				dlog.Printf("Received RequestVote from replica %d, for instance %d\n", requestVote.SenderId, requestVote.Term)
+				r.handleRequestVote(requestVote)
+				break
 
-		case requestVoteReplyS := <-r.requestVoteReplyChan:
-			requestVoteReply := requestVoteReplyS.(*randomizedpaxosproto.RequestVoteReply)
-			//got a RequestVoteReply message
-			dlog.Printf("Received RequestVoteReply from replica %d\n", requestVoteReply.Term)
-			r.handleRequestVoteReply(requestVoteReply)
-			break
+			case requestVoteReplyS := <-r.requestVoteReplyChan:
+				requestVoteReply := requestVoteReplyS.(*randomizedpaxosproto.RequestVoteReply)
+				//got a RequestVoteReply message
+				dlog.Printf("Received RequestVoteReply from replica %d\n", requestVoteReply.Term)
+				r.handleRequestVoteReply(requestVoteReply)
+				break
 
-		case benOrBroadcastS := <-r.benOrBroadcastChan:
-			benOrBroadcast := benOrBroadcastS.(*randomizedpaxosproto.BenOrBroadcast)
-			//got a BenOrBroadcast message
-			dlog.Printf("Received BenOrBroadcast from replica %d, for instance %d\n", benOrBroadcast.SenderId, benOrBroadcast.Term)
-			r.handleBenOrBroadcast(benOrBroadcast)
-			break
+			case benOrBroadcastS := <-r.benOrBroadcastChan:
+				benOrBroadcast := benOrBroadcastS.(*randomizedpaxosproto.BenOrBroadcast)
+				//got a BenOrBroadcast message
+				dlog.Printf("Received BenOrBroadcast from replica %d, for instance %d\n", benOrBroadcast.SenderId, benOrBroadcast.Term)
+				r.handleBenOrBroadcast(benOrBroadcast)
+				break
 
-		case benOrBroadcastReplyS := <-r.benOrBroadcastReplyChan:
-			benOrBroadcastReply := benOrBroadcastReplyS.(*randomizedpaxosproto.BenOrBroadcastReply)
-			//got a BenOrBroadcastReply message
-			dlog.Printf("Received BenOrBroadcastReply from replica %d\n", benOrBroadcastReply.Term)
-			r.handleBenOrBroadcastReply(benOrBroadcastReply)
-			break
+			case benOrBroadcastReplyS := <-r.benOrBroadcastReplyChan:
+				benOrBroadcastReply := benOrBroadcastReplyS.(*randomizedpaxosproto.BenOrBroadcastReply)
+				//got a BenOrBroadcastReply message
+				dlog.Printf("Received BenOrBroadcastReply from replica %d\n", benOrBroadcastReply.Term)
+				r.handleBenOrBroadcastReply(benOrBroadcastReply)
+				break
 
-		case benOrConsensusS := <-r.benOrConsensusChan:
-			benOrConsensus := benOrConsensusS.(*randomizedpaxosproto.BenOrConsensus)
-			//got a BenOrConsensus message
-			dlog.Printf("Received BenOrConsensus from replica %d, for instance %d\n", benOrConsensus.SenderId, benOrConsensus.Term)
-			r.handleBenOrConsensus(benOrConsensus)
-			break
+			case benOrConsensusS := <-r.benOrConsensusChan:
+				benOrConsensus := benOrConsensusS.(*randomizedpaxosproto.BenOrConsensus)
+				//got a BenOrConsensus message
+				dlog.Printf("Received BenOrConsensus from replica %d, for instance %d\n", benOrConsensus.SenderId, benOrConsensus.Term)
+				r.handleBenOrConsensus(benOrConsensus)
+				break
 
-		case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
-			benOrConsensusReply := benOrConsensusReplyS.(*randomizedpaxosproto.BenOrConsensusReply)
-			//got a BenOrConsensusReply message
-			dlog.Printf("Received BenOrConsensusReply from replica %d\n", benOrConsensusReply.Term)
-			r.handleBenOrConsensusReply(benOrConsensusReply)
-			break
+			case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
+				benOrConsensusReply := benOrConsensusReplyS.(*randomizedpaxosproto.BenOrConsensusReply)
+				//got a BenOrConsensusReply message
+				dlog.Printf("Received BenOrConsensusReply from replica %d\n", benOrConsensusReply.Term)
+				r.handleBenOrConsensusReply(benOrConsensusReply)
+				break
 
-		case infoBroadcastS := <-r.infoBroadcastChan:
-			infoBroadcast := infoBroadcastS.(*randomizedpaxosproto.InfoBroadcast)
-			//got a InfoBroadcast message
-			dlog.Printf("Received InfoBroadcast from replica %d, for instance %d\n", infoBroadcast.SenderId, infoBroadcast.Term)
-			r.handleInfoBroadcast(infoBroadcast)
-			break
+			case infoBroadcastS := <-r.infoBroadcastChan:
+				infoBroadcast := infoBroadcastS.(*randomizedpaxosproto.InfoBroadcast)
+				//got a InfoBroadcast message
+				dlog.Printf("Received InfoBroadcast from replica %d, for instance %d\n", infoBroadcast.SenderId, infoBroadcast.Term)
+				r.handleInfoBroadcast(infoBroadcast)
+				break
 
-		case infoBroadcastReplyS := <-r.infoBroadcastReplyChan:
-			infoBroadcastReply := infoBroadcastReplyS.(*randomizedpaxosproto.InfoBroadcastReply)
-			//got a InfoBroadcastReply message
-			dlog.Printf("Received InfoBroadcastReply from replica %d\n", infoBroadcastReply.Term)
-			r.handleInfoBroadcastReply(infoBroadcastReply)
-			break
+			case infoBroadcastReplyS := <-r.infoBroadcastReplyChan:
+				infoBroadcastReply := infoBroadcastReplyS.(*randomizedpaxosproto.InfoBroadcastReply)
+				//got a InfoBroadcastReply message
+				dlog.Printf("Received InfoBroadcastReply from replica %d\n", infoBroadcastReply.Term)
+				r.handleInfoBroadcastReply(infoBroadcastReply)
+				break
+			
+			case <- r.heartbeatTimer.C:
+				//got a heartbeat timeout
+				r.sendHeartbeat()
+			
+			case <- r.electionTimer.C:
+				//got an election timeout
+				timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+				r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+				r.startElection()
+			
+			case <- r.benOrStartWaitTimer.C:
+				//got a benOrStartWait timeout
+				r.startBenOrPlus()
 		}
 	}
 }
@@ -419,7 +476,7 @@ func (r *Replica) bcastReplicateEntries() {
 			args := &randomizedpaxosproto.ReplicateEntries{
 				r.Id, int32(r.currentTerm), int32(r.replicateEntriesCounter.count), 
 				int32(r.matchIndex[i]+1), int32(r.log[i].Term),
-				r.log[r.matchIndex[i]+1:], int32(r.benOrIndex), int32(r.commitIndex)}
+				r.log[r.matchIndex[i]+1:], int32(r.benOrIndex), int32(r.preparedIndex)}
 
 			r.SendMsg(int32(i), r.replicateEntriesRPC, args)
 		}
@@ -475,6 +532,16 @@ func (r *Replica) benOrRunning() bool {
 	return (r.benOrStatus == Broadcasting || r.benOrStatus == BenOrRunning)
 }
 
+func benOrUncommittedLogEntry(idx int) randomizedpaxosproto.Entry {
+	return randomizedpaxosproto.Entry{
+		Data: state.Command{},
+		SenderId: -1,
+		Term: -1, // term -1 means that this is a Ben-Or+ entry that hasn't yet committed
+		Index: int32(idx),
+		BenOrActive: true,
+		Timestamp: -1}
+}
+
 func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntries) {
 	replicaEntries := make([]randomizedpaxosproto.Entry, 0)
 	if int(rpc.LeaderPreparedIndex)+1 < len(r.log) {
@@ -482,6 +549,7 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 	}
 
 	entryAtLeaderBenOrIndex := randomizedpaxosproto.Entry{}
+	entryAtLeaderBenOrIndex.Term = -1
 	if int(rpc.LeaderBenOrIndex) < len(r.log) {
 		entryAtLeaderBenOrIndex = r.log[rpc.LeaderBenOrIndex]
 	}
@@ -493,24 +561,41 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 		ReplicaBenOrIndex: int32(r.benOrIndex),
 		ReplicaPreparedIndex: int32(r.preparedIndex),
 		ReplicaEntries: replicaEntries,
+		LeaderPreparedIndex: rpc.LeaderPreparedIndex,
+		LeaderBenOrIndex: rpc.LeaderBenOrIndex,
 		EntryAtLeaderBenOrIndex: entryAtLeaderBenOrIndex,
 		Success: false}
 
-	if (int(rpc.Term) > r.currentTerm) {
+	// reject if the term is out of date
+	if (int(rpc.Term) < r.currentTerm) {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
 	}
 
+	// update to follower if received term is newer
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
 		r.isLeader = false
 	}
+
 	// a term of -1 means that the entry is committed using Ben-Or+
-	if (r.entries[rpc.PrevLogIndex].Term != rpc.PrevLogTerm && r.entries[rpc.PrevLogIndex].Term != -1) {
+	// we assume that r.entries[rpc.PrevLogIndex] is not currently running Ben-Or+
+	// reject if the previous term doesn't match
+	// if entry at previous term is running Ben-Or+, then we must reject and ask the leader to send over another entry
+	if (r.entries[rpc.PrevLogIndex].Term != rpc.PrevLogTerm || r.entries[rpc.PrevLogIndex].BenOrActive) {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
 	}
 
+	// tell leader to update itself if it's out of date
+	// alternatively, this is an out of date message
+	if r.preparedIndex > int(rpc.LeaderPreparedIndex) {
+		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
+		return
+	}
+
+	// TODO: get rid of this later since I think it's uneccessary logic
+	// if this is a heartbeat, then we can just return
 	if (len(rpc.Entries) == 0) {
 		// this is a heartbeat
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
@@ -521,41 +606,66 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 	// if (rpc.LeaderBenOrIndex <= int32(r.benOrIndex)) {
 	// 	args.EntryAtLeaderBenOrIndex = r.log[rpc.LeaderBenOrIndex]
 	// }
-
-	newCommitPoint := min(r.benOrIndex-1, int(rpc.LeaderBenOrIndex)-1)
+	currentCommitPoint := r.benOrIndex-1
+	newCommitPoint := max(currentCommitPoint, int(rpc.LeaderBenOrIndex)-1)
+	newPreparedPoint := int(rpc.LeaderPreparedIndex)
 	firstEntryIndex := int(rpc.PrevLogIndex)+1
 
-	if (newCommitPoint > r.benOrIndex-1) {
-		for i := r.benOrIndex; i <= newCommitPoint; i++ {
-			r.log[i] = rpc.Entries[i-int(rpc.PrevLogIndex)]
+	logLength := len(r.log)
+
+	benOrIndexChanged := false
+	i := currentCommitPoint+1
+
+	for ; i < logLength; i++ {
+		if (i < firstEntryIndex) {
+			continue
 		}
-		for i := newCommitPoint-firstEntryIndex; i < len(rpc.Entries); i++ {
-			r.pq.push(rpc.Entries[i])
-		}
-		r.log = append(r.log[:newCommitPoint], rpc.Entries[newCommitPoint-firstEntryIndex:]...)
-		r.benOrStatus = Stopped
-		r.benOrIndex = newCommitPoint+1
-	} else {
-		if r.benOrStatus == Stopped {
-			r.log = append(r.log, rpc.Entries[newCommitPoint+1-firstEntryIndex:]...)
-			for i := newCommitPoint+1-firstEntryIndex; i < len(rpc.Entries); i++ {
-				r.pq.push(rpc.Entries[i])
-			}
-			r.benOrIndex = newCommitPoint+1
-		} else if r.benOrStatus == Broadcasting {
-			r.log = append(r.log, rpc.Entries[newCommitPoint+1-firstEntryIndex:]...)
-			for i := newCommitPoint+1-firstEntryIndex; i < len(rpc.Entries); i++ {
-				r.pq.push(rpc.Entries[i])
-			}
-			r.biasedCoin = true
-			r.benOrIndex = newCommitPoint+1
-		} else { // r.benOrStatus == BenOrRunning
-			r.log = append(r.log, rpc.Entries[newCommitPoint+2-firstEntryIndex:]...)
-			for i := newCommitPoint+2-firstEntryIndex; i < len(rpc.Entries); i++ {
-				r.pq.push(rpc.Entries[i])
+		if (r.log[i].Term != rpc.Entries[i-firstEntryIndex].Term) {
+			if (r.log[i].BenOrActive) {
+				r.log[i] = rpc.Entries[i-firstEntryIndex]
+				if !rpc.Entries[i-firstEntryIndex].BenOrActive && i <= newPreparedPoint {
+					benOrIndexChanged = true
+					continue
+				}
+
+				if r.benOrStatus == Stopped {
+					// don't need to do anything else
+				} else if r.benOrStatus == Broadcasting {
+					r.biasedCoin = true
+				} else { // r.benOrStatus == BenOrRunning
+					// can't do anything here
+				}
+			} else if (rpc.Entries[i-firstEntryIndex].BenOrActive) {
+				// use current entry instead
+				continue
+			} else {
+				r.log = append(r.log[:i], rpc.Entries[i-firstEntryIndex:]...)
+				break
 			}
 		}
 	}
+
+	if i == logLength {
+		r.log = append(r.log, rpc.Entries[i-firstEntryIndex:]...)
+	}
+
+	if benOrIndexChanged {
+		r.benOrIndex = newCommitPoint+1
+		r.benOrStatus = Stopped
+		r.biasedCoin = false
+		if (r.benOrIndex < len(r.log)) {
+			r.log[r.benOrIndex].BenOrActive = true
+		} else {
+			r.log[r.benOrIndex] = benOrUncommittedLogEntry(len(r.log))
+		}
+	}
+
+	for i := currentCommitPoint+1; i <= len(r.log); i++ {
+		r.pq.remove(r.log[i])
+	}
+
+	// extract values from priority queue and append them
+	replicaEntries = append(replicaEntries, r.pq.extractList()...)
 
 	args = &randomizedpaxosproto.ReplicateEntriesReply{
 		ReplicaId: r.Id,
@@ -564,6 +674,8 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 		ReplicaBenOrIndex: int32(r.benOrIndex),
 		ReplicaPreparedIndex: int32(r.preparedIndex),
 		ReplicaEntries: replicaEntries,
+		LeaderPreparedIndex: rpc.LeaderPreparedIndex,
+		LeaderBenOrIndex: rpc.LeaderBenOrIndex,
 		EntryAtLeaderBenOrIndex: entryAtLeaderBenOrIndex,
 		Success: true}
 
@@ -571,13 +683,32 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 	return
 }
 
+
+func (r *Replica) startElection () {
+	r.currentTerm++
+	r.votedFor = int(r.Id)
+	r.votesReceived = 1 // itself
+	r.requestVoteEntries = append(r.log[r.preparedIndex+1:], r.pq.extractList()...)
+
+	args := &randomizedpaxosproto.RequestVote{
+		SenderId: r.Id,
+		Term: int32(r.currentTerm),
+		Counter: 0,
+		CandidateBenOrIndex: int32(r.benOrIndex),
+	}
+
+	r.sendMsg(r.Id, r.requestVoteRPC, args)
+}
+
+
 func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
 	replicaEntries := make([]randomizedpaxosproto.Entry, 0)
-	if int(rpc.CandidatePreparedIndex)+1 < len(r.log) {
-		replicaEntries = r.log[rpc.CandidatePreparedIndex+1:]
+	if int(rpc.CandidateBenOrIndex)+1 < len(r.log) {
+		replicaEntries = r.log[rpc.CandidateBenOrIndex:]
 	}
 
 	entryAtCandidateBenOrIndex := randomizedpaxosproto.Entry{}
+	entryAtCandidateBenOrIndex.Term = -1
 	if int(rpc.CandidateBenOrIndex) < len(r.log) {
 		entryAtCandidateBenOrIndex = r.log[rpc.CandidateBenOrIndex]
 	}
@@ -590,6 +721,7 @@ func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
 		ReplicaBenOrIndex: int32(r.benOrIndex),
 		ReplicaPreparedIndex: int32(r.preparedIndex),
 		ReplicaEntries: replicaEntries,
+		CandidateBenOrIndex: rpc.CandidateBenOrIndex,
 		EntryAtCandidateBenOrIndex: entryAtCandidateBenOrIndex}
 
 	if rpc.Term < int32(r.currentTerm) {
@@ -597,12 +729,128 @@ func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
 		return
 	}
 
-	if (int(rpc.Term) > r.currentTerm) {
+	if rpc.Term == int32(r.currentTerm) && r.votedFor != -1 {
+		r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
+		return
+	}
+
+	if int(rpc.Term) > r.currentTerm {
 		r.currentTerm = int(rpc.Term)
 		r.isLeader = false
 	}
 
 	args.VoteGranted = true
+	r.votedFor = int(rpc.SenderId)
 	r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
 	return
+}
+
+func (r *Replica) handleRequestVoteReply (rpc *randomizedpaxosproto.RequestVoteReply) {
+	if (int(rpc.Term) > r.currentTerm) {
+		r.currentTerm = int(rpc.Term)
+		r.isLeader = false
+		r.votesReceived = 0
+		r.requestVoteEntries = make([]randomizedpaxosproto.Entry, 0)
+		return
+	}
+	
+	if (r.isLeader || int(rpc.Term) < r.currentTerm) {
+		// ignore these entries
+		return
+	}
+
+	currentCommitPoint := r.benOrIndex-1
+	currentPreparedPoint := r.preparedIndex
+	newCommitPoint := max(currentCommitPoint, int(rpc.ReplicaBenOrIndex)-1)
+	newPreparedPoint := max(r.preparedIndex, int(rpc.ReplicaPreparedIndex))
+	firstEntryIndex := int(rpc.CandidateBenOrIndex) + 1
+
+	// add new committed entries from returning rpc
+	for i := r.benOrIndex; i < int(rpc.ReplicaPreparedIndex); i++ {
+		idx := i - firstEntryIndex
+		if i < len(r.log) {
+			if (r.log[i].Term != rpc.ReplicaEntries[idx].Term) {
+				if (r.log[i].BenOrActive) {
+					if !rpc.ReplicaEntries[idx].BenOrActive && i <= newPreparedPoint {
+						// r.requestVoteEntries[i] = rpc.ReplicaEntries[idx]
+						r.log[i] = rpc.ReplicaEntries[idx]
+						continue
+					}
+					// else, use current entry
+				} else if (rpc.ReplicaEntries[idx].BenOrActive) {
+					// use current entry instead
+					continue
+				} else { // neither requestVoteEntries[i] or rpc.ReplicaEntries[idx] is benOrActive
+					// r.requestVoteEntries[idx] = rpc.ReplicaEntries[idx]
+					r.log = append(r.log[:i], rpc.ReplicaEntries[idx:newPreparedPoint+1]...)
+					break
+				}
+			}
+		} else {
+			r.log = append(r.log, rpc.ReplicaEntries[idx:newPreparedPoint+1]...)
+			// r.requestVoteEntries = append(r.requestVoteEntries, rpc.ReplicaEntries[idx])
+		}
+	}
+
+	r.benOrIndex = newCommitPoint+1
+	r.preparedIndex = newPreparedPoint
+
+	// remove elements elements that have for sure been committed from requestVoteEntries
+	r.requestVoteEntries = r.requestVoteEntries[r.preparedIndex-currentPreparedPoint:]
+
+	if rpc.VoteGranted {
+		r.votesReceived++
+
+		start := newPreparedPoint + 1
+		if r.benOrRunning() && r.log[start].BenOrActive {
+			start++
+		}
+
+		for i := newPreparedPoint + 1; i < firstEntryIndex + len(rpc.ReplicaEntries); i++ {
+			idxRPC := i - firstEntryIndex
+			idxRVEntries := i - newPreparedPoint - 1
+			if idxRVEntries < len(r.requestVoteEntries) {
+				if (r.requestVoteEntries[idxRVEntries].Term < rpc.ReplicaEntries[idxRPC].Term) {
+					r.requestVoteEntries[idxRVEntries] = rpc.ReplicaEntries[idxRPC]
+				}
+			} else {
+				r.requestVoteEntries = append(r.requestVoteEntries, rpc.ReplicaEntries[idxRPC])
+				break
+			}
+		}
+	}
+
+	if (r.votesReceived > r.N/2) {
+		// become the leader
+		r.isLeader = true
+		r.votesReceived = 0
+
+		// copy over values from requestVoteEntries to log
+		r.log = append(r.log[:r.preparedIndex+1], r.requestVoteEntries...)
+		r.requestVoteEntries = make([]randomizedpaxosproto.Entry, 0)
+
+		for i := 0; i < r.N ; i++ {
+			r.nextIndex[i] = len(r.log)
+			r.matchIndex[i] = 0
+			r.commitIndex[i] = 0
+		}
+
+		timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
+		r.resetTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
+		// send out replicate entries rpcs
+		r.bcastReplicateEntries()
+	}
+}
+
+func (r *Replica) handleInfoBroadcastReply (rpc *randomizedpaxosproto.InfoBroadcastReply) {
+	if (int(rpc.Term) > r.currentTerm) {
+		r.currentTerm = int(rpc.Term)
+		r.isLeader = false
+		r.votesReceived = 0
+	}
+	return
+}
+
+func (r *Replica) handleReplicateEntriesReply (rpc *randomizedpaxosproto.ReplicateEntriesReply) {
+	
 }

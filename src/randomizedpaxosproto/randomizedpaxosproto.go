@@ -16,11 +16,12 @@ const (
 )
 
 type Entry struct {
-    Data 	    state.Command
-    SenderId    int32
-    Term 	    int32
-    Index	    int32
-    Timestamp   int64
+    Data 	        state.Command
+    SenderId        int32
+    Term 	        int32
+    Index	        int32
+    BenOrActive     bool
+    Timestamp       int64
 }
 
 type ReplicateEntries struct {
@@ -41,6 +42,8 @@ type ReplicateEntriesReply struct {
     ReplicaBenOrIndex				int32
     ReplicaPreparedIndex			int32
     ReplicaEntries				    []Entry
+    LeaderPreparedIndex				int32
+    LeaderBenOrIndex				int32
     EntryAtLeaderBenOrIndex     	Entry
     Success							bool
 }
@@ -49,7 +52,6 @@ type RequestVote struct {
     SenderId		   				int32
     Term 							int32
     Counter							int32
-    CandidatePreparedIndex			int32
     CandidateBenOrIndex				int32
 }
 
@@ -61,6 +63,7 @@ type RequestVoteReply struct {
     ReplicaBenOrIndex				int32
     ReplicaPreparedIndex			int32
     ReplicaEntries					[]Entry
+    CandidateBenOrIndex				int32
     EntryAtCandidateBenOrIndex		Entry
 }
 
