@@ -27,7 +27,7 @@ type Entry struct {
 type ReplicateEntries struct {
     SenderId		   				int32
     Term							int32
-    Counter							int32
+    // Counter							int32
     PrevLogIndex					int32
     PrevLogTerm						int32
     Entries							[]Entry
@@ -38,27 +38,29 @@ type ReplicateEntries struct {
 type ReplicateEntriesReply struct {
     ReplicaId	   					int32
     Term							int32
-    Counter							int32
+    // Counter							int32
     ReplicaBenOrIndex				int32
     ReplicaPreparedIndex			int32
     ReplicaEntries				    []Entry
-    LeaderPreparedIndex				int32
-    LeaderBenOrIndex				int32
-    EntryAtLeaderBenOrIndex     	Entry
+    // LeaderPreparedIndex				int32
+    // LeaderBenOrIndex				int32
+    // EntryAtLeaderBenOrIndex     	Entry
+    PrevLogIndex					int32
+    RequestedIndex					int32
     Success							bool
 }
 
 type RequestVote struct {
     SenderId		   				int32
     Term 							int32
-    Counter							int32
+    // Counter							int32
     CandidateBenOrIndex				int32
 }
 
 type RequestVoteReply struct {
     ReplicaId	   					int32
     Term							int32
-    Counter							int32
+    // Counter							int32
     VoteGranted						bool
     ReplicaBenOrIndex				int32
     ReplicaPreparedIndex			int32
