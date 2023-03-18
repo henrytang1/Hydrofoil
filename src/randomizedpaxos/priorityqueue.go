@@ -61,7 +61,7 @@ func (extPQ ExtendedPriorityQueue) remove(entry randomizedpaxosproto.Entry) {
 	}
 }
 
-func (extPQ ExtendedPriorityQueue) pop() any {
+func (extPQ ExtendedPriorityQueue) pop() randomizedpaxosproto.Entry {
 	item := heap.Pop(&extPQ.pq).(*Item)
 
 	req := UniqueCommand {
@@ -72,7 +72,7 @@ func (extPQ ExtendedPriorityQueue) pop() any {
 	}
 
 	delete(extPQ.itemLoc, req)
-	return item
+	return item.entry
 }
 
 func (extPQ ExtendedPriorityQueue) peek() *Item {

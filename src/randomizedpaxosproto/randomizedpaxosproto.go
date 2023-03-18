@@ -72,18 +72,21 @@ type RequestVoteReply struct {
 type BenOrBroadcast struct {
     SenderId		   				int32
     Term							int32
-    Counter							int32
-    ClientReq						state.Command
-    Timestamp						int64
-    RequestTerm						int32
-    Index							int32
+    Index                           int32
+    Iteration						int32
+    ClientReq						Entry
+    // Timestamp						int64
+    // RequestTerm						int32
+    // Index							int32
 }
 
 type BenOrBroadcastReply struct {
     ReplicaId	   					int32
     Term							int32
-    Counter                         int32
-    CommittedEntry					Entry
+    // Counter                         int32
+    Index                           int32
+    Iteration                       int32
+    ClientReq   					Entry
 }
 
 type BenOrConsensus struct {
@@ -102,6 +105,21 @@ type BenOrConsensusReply struct {
     Term							int32
     Counter                         int32
     CommittedEntry					Entry
+}
+
+type GetCommittedData struct {
+    SenderId           				int32
+    Term               				int32
+    StartIndex                       int32
+    EndIndex                        int32 // inclusive
+}
+
+type GetCommittedDataReply struct {
+    SenderId           				int32
+    Term               				int32
+    StartIndex                       int32
+    EndIndex                        int32 // inclusive
+    Entries                         []Entry
 }
 
 type InfoBroadcast struct {
