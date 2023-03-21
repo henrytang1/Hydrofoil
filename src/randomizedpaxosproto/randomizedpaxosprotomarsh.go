@@ -12,91 +12,23 @@ type byteReader interface {
 	ReadByte() (c byte, err error)
 }
 
-func (t *RequestVote) BinarySize() (nbytes int, sizeKnown bool) {
-	return 12, true
-}
-
-type RequestVoteCache struct {
-	mu	sync.Mutex
-	cache	[]*RequestVote
-}
-
-func NewRequestVoteCache() *RequestVoteCache {
-	c := &RequestVoteCache{}
-	c.cache = make([]*RequestVote, 0)
-	return c
-}
-
-func (p *RequestVoteCache) Get() *RequestVote {
-	var t *RequestVote
-	p.mu.Lock()
-	if len(p.cache) > 0 {
-		t = p.cache[len(p.cache)-1]
-		p.cache = p.cache[0:(len(p.cache) - 1)]
-	}
-	p.mu.Unlock()
-	if t == nil {
-		t = &RequestVote{}
-	}
-	return t
-}
-func (p *RequestVoteCache) Put(t *RequestVote) {
-	p.mu.Lock()
-	p.cache = append(p.cache, t)
-	p.mu.Unlock()
-}
-func (t *RequestVote) Marshal(wire io.Writer) {
-	var b [12]byte
-	var bs []byte
-	bs = b[:12]
-	tmp32 := t.SenderId
-	bs[0] = byte(tmp32)
-	bs[1] = byte(tmp32 >> 8)
-	bs[2] = byte(tmp32 >> 16)
-	bs[3] = byte(tmp32 >> 24)
-	tmp32 = t.Term
-	bs[4] = byte(tmp32)
-	bs[5] = byte(tmp32 >> 8)
-	bs[6] = byte(tmp32 >> 16)
-	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.CandidateBenOrIndex
-	bs[8] = byte(tmp32)
-	bs[9] = byte(tmp32 >> 8)
-	bs[10] = byte(tmp32 >> 16)
-	bs[11] = byte(tmp32 >> 24)
-	wire.Write(bs)
-}
-
-func (t *RequestVote) Unmarshal(wire io.Reader) error {
-	var b [12]byte
-	var bs []byte
-	bs = b[:12]
-	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
-		return err
-	}
-	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
-	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.CandidateBenOrIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	return nil
-}
-
-func (t *InfoBroadcast) BinarySize() (nbytes int, sizeKnown bool) {
+func (t *ReplicateEntriesReply) BinarySize() (nbytes int, sizeKnown bool) {
 	return 0, false
 }
 
-type InfoBroadcastCache struct {
+type ReplicateEntriesReplyCache struct {
 	mu	sync.Mutex
-	cache	[]*InfoBroadcast
+	cache	[]*ReplicateEntriesReply
 }
 
-func NewInfoBroadcastCache() *InfoBroadcastCache {
-	c := &InfoBroadcastCache{}
-	c.cache = make([]*InfoBroadcast, 0)
+func NewReplicateEntriesReplyCache() *ReplicateEntriesReplyCache {
+	c := &ReplicateEntriesReplyCache{}
+	c.cache = make([]*ReplicateEntriesReply, 0)
 	return c
 }
 
-func (p *InfoBroadcastCache) Get() *InfoBroadcast {
-	var t *InfoBroadcast
+func (p *ReplicateEntriesReplyCache) Get() *ReplicateEntriesReply {
+	var t *ReplicateEntriesReply
 	p.mu.Lock()
 	if len(p.cache) > 0 {
 		t = p.cache[len(p.cache)-1]
@@ -104,20 +36,20 @@ func (p *InfoBroadcastCache) Get() *InfoBroadcast {
 	}
 	p.mu.Unlock()
 	if t == nil {
-		t = &InfoBroadcast{}
+		t = &ReplicateEntriesReply{}
 	}
 	return t
 }
-func (p *InfoBroadcastCache) Put(t *InfoBroadcast) {
+func (p *ReplicateEntriesReplyCache) Put(t *ReplicateEntriesReply) {
 	p.mu.Lock()
 	p.cache = append(p.cache, t)
 	p.mu.Unlock()
 }
-func (t *InfoBroadcast) Marshal(wire io.Writer) {
-	var b [12]byte
+func (t *ReplicateEntriesReply) Marshal(wire io.Writer) {
+	var b [16]byte
 	var bs []byte
-	bs = b[:12]
-	tmp32 := t.SenderId
+	bs = b[:16]
+	tmp32 := t.ReplicaId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
 	bs[2] = byte(tmp32 >> 16)
@@ -127,26 +59,71 @@ func (t *InfoBroadcast) Marshal(wire io.Writer) {
 	bs[5] = byte(tmp32 >> 8)
 	bs[6] = byte(tmp32 >> 16)
 	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.Counter
+	tmp32 = t.ReplicaBenOrIndex
 	bs[8] = byte(tmp32)
 	bs[9] = byte(tmp32 >> 8)
 	bs[10] = byte(tmp32 >> 16)
 	bs[11] = byte(tmp32 >> 24)
+	tmp32 = t.ReplicaPreparedIndex
+	bs[12] = byte(tmp32)
+	bs[13] = byte(tmp32 >> 8)
+	bs[14] = byte(tmp32 >> 16)
+	bs[15] = byte(tmp32 >> 24)
 	wire.Write(bs)
-	t.ClientReq.Marshal(wire)
+	bs = b[:]
+	alen1 := int64(len(t.ReplicaEntries))
+	if wlen := binary.PutVarint(bs, alen1); wlen >= 0 {
+		wire.Write(b[0:wlen])
+	}
+	for i := int64(0); i < alen1; i++ {
+		t.ReplicaEntries[i].Marshal(wire)
+	}
+	bs = b[:8]
+	tmp32 = t.PrevLogIndex
+	bs[0] = byte(tmp32)
+	bs[1] = byte(tmp32 >> 8)
+	bs[2] = byte(tmp32 >> 16)
+	bs[3] = byte(tmp32 >> 24)
+	tmp32 = t.RequestedIndex
+	bs[4] = byte(tmp32)
+	bs[5] = byte(tmp32 >> 8)
+	bs[6] = byte(tmp32 >> 16)
+	bs[7] = byte(tmp32 >> 24)
+	wire.Write(bs)
+	t.Success.Marshal(wire)
 }
 
-func (t *InfoBroadcast) Unmarshal(wire io.Reader) error {
-	var b [12]byte
+func (t *ReplicateEntriesReply) Unmarshal(rr io.Reader) error {
+	var wire byteReader
+	var ok bool
+	if wire, ok = rr.(byteReader); !ok {
+		wire = bufio.NewReader(rr)
+	}
+	var b [16]byte
 	var bs []byte
-	bs = b[:12]
-	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
+	bs = b[:16]
+	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
 		return err
 	}
-	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.Counter = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	t.ClientReq.Unmarshal(wire)
+	t.ReplicaBenOrIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.ReplicaPreparedIndex = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
+	alen1, err := binary.ReadVarint(wire)
+	if err != nil {
+		return err
+	}
+	t.ReplicaEntries = make([]Entry, alen1)
+	for i := int64(0); i < alen1; i++ {
+		t.ReplicaEntries[i].Unmarshal(wire)
+	}
+	bs = b[:8]
+	if _, err := io.ReadAtLeast(wire, bs, 8); err != nil {
+		return err
+	}
+	t.PrevLogIndex = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.RequestedIndex = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
+	t.Success.Unmarshal(wire)
 	return nil
 }
 
@@ -184,9 +161,9 @@ func (p *BenOrBroadcastReplyCache) Put(t *BenOrBroadcastReply) {
 	p.mu.Unlock()
 }
 func (t *BenOrBroadcastReply) Marshal(wire io.Writer) {
-	var b [12]byte
+	var b [16]byte
 	var bs []byte
-	bs = b[:12]
+	bs = b[:16]
 	tmp32 := t.ReplicaId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
@@ -197,122 +174,32 @@ func (t *BenOrBroadcastReply) Marshal(wire io.Writer) {
 	bs[5] = byte(tmp32 >> 8)
 	bs[6] = byte(tmp32 >> 16)
 	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.Counter
+	tmp32 = t.Index
 	bs[8] = byte(tmp32)
 	bs[9] = byte(tmp32 >> 8)
 	bs[10] = byte(tmp32 >> 16)
 	bs[11] = byte(tmp32 >> 24)
-	wire.Write(bs)
-	t.CommittedEntry.Marshal(wire)
-}
-
-func (t *BenOrBroadcastReply) Unmarshal(wire io.Reader) error {
-	var b [12]byte
-	var bs []byte
-	bs = b[:12]
-	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
-		return err
-	}
-	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
-	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.Counter = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	t.CommittedEntry.Unmarshal(wire)
-	return nil
-}
-
-func (t *BenOrConsensus) BinarySize() (nbytes int, sizeKnown bool) {
-	return 0, false
-}
-
-type BenOrConsensusCache struct {
-	mu	sync.Mutex
-	cache	[]*BenOrConsensus
-}
-
-func NewBenOrConsensusCache() *BenOrConsensusCache {
-	c := &BenOrConsensusCache{}
-	c.cache = make([]*BenOrConsensus, 0)
-	return c
-}
-
-func (p *BenOrConsensusCache) Get() *BenOrConsensus {
-	var t *BenOrConsensus
-	p.mu.Lock()
-	if len(p.cache) > 0 {
-		t = p.cache[len(p.cache)-1]
-		p.cache = p.cache[0:(len(p.cache) - 1)]
-	}
-	p.mu.Unlock()
-	if t == nil {
-		t = &BenOrConsensus{}
-	}
-	return t
-}
-func (p *BenOrConsensusCache) Put(t *BenOrConsensus) {
-	p.mu.Lock()
-	p.cache = append(p.cache, t)
-	p.mu.Unlock()
-}
-func (t *BenOrConsensus) Marshal(wire io.Writer) {
-	var b [20]byte
-	var bs []byte
-	bs = b[:20]
-	tmp32 := t.SenderId
-	bs[0] = byte(tmp32)
-	bs[1] = byte(tmp32 >> 8)
-	bs[2] = byte(tmp32 >> 16)
-	bs[3] = byte(tmp32 >> 24)
-	tmp32 = t.Term
-	bs[4] = byte(tmp32)
-	bs[5] = byte(tmp32 >> 8)
-	bs[6] = byte(tmp32 >> 16)
-	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.Counter
-	bs[8] = byte(tmp32)
-	bs[9] = byte(tmp32 >> 8)
-	bs[10] = byte(tmp32 >> 16)
-	bs[11] = byte(tmp32 >> 24)
-	tmp32 = t.Phase
+	tmp32 = t.Iteration
 	bs[12] = byte(tmp32)
 	bs[13] = byte(tmp32 >> 8)
 	bs[14] = byte(tmp32 >> 16)
 	bs[15] = byte(tmp32 >> 24)
-	tmp32 = t.Vote
-	bs[16] = byte(tmp32)
-	bs[17] = byte(tmp32 >> 8)
-	bs[18] = byte(tmp32 >> 16)
-	bs[19] = byte(tmp32 >> 24)
 	wire.Write(bs)
-	t.MajRequest.Marshal(wire)
-	t.LeaderRequest.Marshal(wire)
-	bs = b[:4]
-	tmp32 = t.EntryType
-	bs[0] = byte(tmp32)
-	bs[1] = byte(tmp32 >> 8)
-	bs[2] = byte(tmp32 >> 16)
-	bs[3] = byte(tmp32 >> 24)
-	wire.Write(bs)
+	t.ClientReq.Marshal(wire)
 }
 
-func (t *BenOrConsensus) Unmarshal(wire io.Reader) error {
-	var b [20]byte
+func (t *BenOrBroadcastReply) Unmarshal(wire io.Reader) error {
+	var b [16]byte
 	var bs []byte
-	bs = b[:20]
-	if _, err := io.ReadAtLeast(wire, bs, 20); err != nil {
+	bs = b[:16]
+	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
 		return err
 	}
-	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.Counter = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	t.Phase = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
-	t.Vote = int32((uint32(bs[16]) | (uint32(bs[17]) << 8) | (uint32(bs[18]) << 16) | (uint32(bs[19]) << 24)))
-	t.MajRequest.Unmarshal(wire)
-	t.LeaderRequest.Unmarshal(wire)
-	bs = b[:4]
-	if _, err := io.ReadAtLeast(wire, bs, 4); err != nil {
-		return err
-	}
-	t.EntryType = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.Index = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.Iteration = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
+	t.ClientReq.Unmarshal(wire)
 	return nil
 }
 
@@ -350,9 +237,9 @@ func (p *BenOrConsensusReplyCache) Put(t *BenOrConsensusReply) {
 	p.mu.Unlock()
 }
 func (t *BenOrConsensusReply) Marshal(wire io.Writer) {
-	var b [12]byte
+	var b [16]byte
 	var bs []byte
-	bs = b[:12]
+	bs = b[:16]
 	tmp32 := t.ReplicaId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
@@ -363,26 +250,265 @@ func (t *BenOrConsensusReply) Marshal(wire io.Writer) {
 	bs[5] = byte(tmp32 >> 8)
 	bs[6] = byte(tmp32 >> 16)
 	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.Counter
+	tmp32 = t.Index
 	bs[8] = byte(tmp32)
 	bs[9] = byte(tmp32 >> 8)
 	bs[10] = byte(tmp32 >> 16)
 	bs[11] = byte(tmp32 >> 24)
+	tmp32 = t.Iteration
+	bs[12] = byte(tmp32)
+	bs[13] = byte(tmp32 >> 8)
+	bs[14] = byte(tmp32 >> 16)
+	bs[15] = byte(tmp32 >> 24)
 	wire.Write(bs)
+	t.IndexCommitted.Marshal(wire)
 	t.CommittedEntry.Marshal(wire)
 }
 
 func (t *BenOrConsensusReply) Unmarshal(wire io.Reader) error {
-	var b [12]byte
+	var b [16]byte
 	var bs []byte
-	bs = b[:12]
-	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
+	bs = b[:16]
+	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
 		return err
 	}
 	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.Counter = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.Index = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.Iteration = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
+	t.IndexCommitted.Unmarshal(wire)
 	t.CommittedEntry.Unmarshal(wire)
+	return nil
+}
+
+func (t *GetCommittedData) BinarySize() (nbytes int, sizeKnown bool) {
+	return 16, true
+}
+
+type GetCommittedDataCache struct {
+	mu	sync.Mutex
+	cache	[]*GetCommittedData
+}
+
+func NewGetCommittedDataCache() *GetCommittedDataCache {
+	c := &GetCommittedDataCache{}
+	c.cache = make([]*GetCommittedData, 0)
+	return c
+}
+
+func (p *GetCommittedDataCache) Get() *GetCommittedData {
+	var t *GetCommittedData
+	p.mu.Lock()
+	if len(p.cache) > 0 {
+		t = p.cache[len(p.cache)-1]
+		p.cache = p.cache[0:(len(p.cache) - 1)]
+	}
+	p.mu.Unlock()
+	if t == nil {
+		t = &GetCommittedData{}
+	}
+	return t
+}
+func (p *GetCommittedDataCache) Put(t *GetCommittedData) {
+	p.mu.Lock()
+	p.cache = append(p.cache, t)
+	p.mu.Unlock()
+}
+func (t *GetCommittedData) Marshal(wire io.Writer) {
+	var b [16]byte
+	var bs []byte
+	bs = b[:16]
+	tmp32 := t.SenderId
+	bs[0] = byte(tmp32)
+	bs[1] = byte(tmp32 >> 8)
+	bs[2] = byte(tmp32 >> 16)
+	bs[3] = byte(tmp32 >> 24)
+	tmp32 = t.Term
+	bs[4] = byte(tmp32)
+	bs[5] = byte(tmp32 >> 8)
+	bs[6] = byte(tmp32 >> 16)
+	bs[7] = byte(tmp32 >> 24)
+	tmp32 = t.StartIndex
+	bs[8] = byte(tmp32)
+	bs[9] = byte(tmp32 >> 8)
+	bs[10] = byte(tmp32 >> 16)
+	bs[11] = byte(tmp32 >> 24)
+	tmp32 = t.EndIndex
+	bs[12] = byte(tmp32)
+	bs[13] = byte(tmp32 >> 8)
+	bs[14] = byte(tmp32 >> 16)
+	bs[15] = byte(tmp32 >> 24)
+	wire.Write(bs)
+}
+
+func (t *GetCommittedData) Unmarshal(wire io.Reader) error {
+	var b [16]byte
+	var bs []byte
+	bs = b[:16]
+	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
+		return err
+	}
+	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
+	t.StartIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.EndIndex = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
+	return nil
+}
+
+func (t *GetCommittedDataReply) BinarySize() (nbytes int, sizeKnown bool) {
+	return 0, false
+}
+
+type GetCommittedDataReplyCache struct {
+	mu	sync.Mutex
+	cache	[]*GetCommittedDataReply
+}
+
+func NewGetCommittedDataReplyCache() *GetCommittedDataReplyCache {
+	c := &GetCommittedDataReplyCache{}
+	c.cache = make([]*GetCommittedDataReply, 0)
+	return c
+}
+
+func (p *GetCommittedDataReplyCache) Get() *GetCommittedDataReply {
+	var t *GetCommittedDataReply
+	p.mu.Lock()
+	if len(p.cache) > 0 {
+		t = p.cache[len(p.cache)-1]
+		p.cache = p.cache[0:(len(p.cache) - 1)]
+	}
+	p.mu.Unlock()
+	if t == nil {
+		t = &GetCommittedDataReply{}
+	}
+	return t
+}
+func (p *GetCommittedDataReplyCache) Put(t *GetCommittedDataReply) {
+	p.mu.Lock()
+	p.cache = append(p.cache, t)
+	p.mu.Unlock()
+}
+func (t *GetCommittedDataReply) Marshal(wire io.Writer) {
+	var b [16]byte
+	var bs []byte
+	bs = b[:16]
+	tmp32 := t.SenderId
+	bs[0] = byte(tmp32)
+	bs[1] = byte(tmp32 >> 8)
+	bs[2] = byte(tmp32 >> 16)
+	bs[3] = byte(tmp32 >> 24)
+	tmp32 = t.Term
+	bs[4] = byte(tmp32)
+	bs[5] = byte(tmp32 >> 8)
+	bs[6] = byte(tmp32 >> 16)
+	bs[7] = byte(tmp32 >> 24)
+	tmp32 = t.StartIndex
+	bs[8] = byte(tmp32)
+	bs[9] = byte(tmp32 >> 8)
+	bs[10] = byte(tmp32 >> 16)
+	bs[11] = byte(tmp32 >> 24)
+	tmp32 = t.EndIndex
+	bs[12] = byte(tmp32)
+	bs[13] = byte(tmp32 >> 8)
+	bs[14] = byte(tmp32 >> 16)
+	bs[15] = byte(tmp32 >> 24)
+	wire.Write(bs)
+	bs = b[:]
+	alen1 := int64(len(t.Entries))
+	if wlen := binary.PutVarint(bs, alen1); wlen >= 0 {
+		wire.Write(b[0:wlen])
+	}
+	for i := int64(0); i < alen1; i++ {
+		t.Entries[i].Marshal(wire)
+	}
+}
+
+func (t *GetCommittedDataReply) Unmarshal(rr io.Reader) error {
+	var wire byteReader
+	var ok bool
+	if wire, ok = rr.(byteReader); !ok {
+		wire = bufio.NewReader(rr)
+	}
+	var b [16]byte
+	var bs []byte
+	bs = b[:16]
+	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
+		return err
+	}
+	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
+	t.StartIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.EndIndex = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
+	alen1, err := binary.ReadVarint(wire)
+	if err != nil {
+		return err
+	}
+	t.Entries = make([]Entry, alen1)
+	for i := int64(0); i < alen1; i++ {
+		t.Entries[i].Unmarshal(wire)
+	}
+	return nil
+}
+
+func (t *InfoBroadcastReply) BinarySize() (nbytes int, sizeKnown bool) {
+	return 8, true
+}
+
+type InfoBroadcastReplyCache struct {
+	mu	sync.Mutex
+	cache	[]*InfoBroadcastReply
+}
+
+func NewInfoBroadcastReplyCache() *InfoBroadcastReplyCache {
+	c := &InfoBroadcastReplyCache{}
+	c.cache = make([]*InfoBroadcastReply, 0)
+	return c
+}
+
+func (p *InfoBroadcastReplyCache) Get() *InfoBroadcastReply {
+	var t *InfoBroadcastReply
+	p.mu.Lock()
+	if len(p.cache) > 0 {
+		t = p.cache[len(p.cache)-1]
+		p.cache = p.cache[0:(len(p.cache) - 1)]
+	}
+	p.mu.Unlock()
+	if t == nil {
+		t = &InfoBroadcastReply{}
+	}
+	return t
+}
+func (p *InfoBroadcastReplyCache) Put(t *InfoBroadcastReply) {
+	p.mu.Lock()
+	p.cache = append(p.cache, t)
+	p.mu.Unlock()
+}
+func (t *InfoBroadcastReply) Marshal(wire io.Writer) {
+	var b [8]byte
+	var bs []byte
+	bs = b[:8]
+	tmp32 := t.ReplicaId
+	bs[0] = byte(tmp32)
+	bs[1] = byte(tmp32 >> 8)
+	bs[2] = byte(tmp32 >> 16)
+	bs[3] = byte(tmp32 >> 24)
+	tmp32 = t.Term
+	bs[4] = byte(tmp32)
+	bs[5] = byte(tmp32 >> 8)
+	bs[6] = byte(tmp32 >> 16)
+	bs[7] = byte(tmp32 >> 24)
+	wire.Write(bs)
+}
+
+func (t *InfoBroadcastReply) Unmarshal(wire io.Reader) error {
+	var b [8]byte
+	var bs []byte
+	bs = b[:8]
+	if _, err := io.ReadAtLeast(wire, bs, 8); err != nil {
+		return err
+	}
+	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
 	return nil
 }
 
@@ -452,6 +578,7 @@ func (t *Entry) Marshal(wire io.Writer) {
 	bs[6] = byte(tmp64 >> 48)
 	bs[7] = byte(tmp64 >> 56)
 	wire.Write(bs)
+	t.FromLeader.Marshal(wire)
 }
 
 func (t *Entry) Unmarshal(wire io.Reader) error {
@@ -471,6 +598,7 @@ func (t *Entry) Unmarshal(wire io.Reader) error {
 		return err
 	}
 	t.Timestamp = int64((uint64(bs[0]) | (uint64(bs[1]) << 8) | (uint64(bs[2]) << 16) | (uint64(bs[3]) << 24) | (uint64(bs[4]) << 32) | (uint64(bs[5]) << 40) | (uint64(bs[6]) << 48) | (uint64(bs[7]) << 56)))
+	t.FromLeader.Unmarshal(wire)
 	return nil
 }
 
@@ -587,23 +715,23 @@ func (t *ReplicateEntries) Unmarshal(rr io.Reader) error {
 	return nil
 }
 
-func (t *ReplicateEntriesReply) BinarySize() (nbytes int, sizeKnown bool) {
-	return 0, false
+func (t *RequestVote) BinarySize() (nbytes int, sizeKnown bool) {
+	return 12, true
 }
 
-type ReplicateEntriesReplyCache struct {
+type RequestVoteCache struct {
 	mu	sync.Mutex
-	cache	[]*ReplicateEntriesReply
+	cache	[]*RequestVote
 }
 
-func NewReplicateEntriesReplyCache() *ReplicateEntriesReplyCache {
-	c := &ReplicateEntriesReplyCache{}
-	c.cache = make([]*ReplicateEntriesReply, 0)
+func NewRequestVoteCache() *RequestVoteCache {
+	c := &RequestVoteCache{}
+	c.cache = make([]*RequestVote, 0)
 	return c
 }
 
-func (p *ReplicateEntriesReplyCache) Get() *ReplicateEntriesReply {
-	var t *ReplicateEntriesReply
+func (p *RequestVoteCache) Get() *RequestVote {
+	var t *RequestVote
 	p.mu.Lock()
 	if len(p.cache) > 0 {
 		t = p.cache[len(p.cache)-1]
@@ -611,20 +739,20 @@ func (p *ReplicateEntriesReplyCache) Get() *ReplicateEntriesReply {
 	}
 	p.mu.Unlock()
 	if t == nil {
-		t = &ReplicateEntriesReply{}
+		t = &RequestVote{}
 	}
 	return t
 }
-func (p *ReplicateEntriesReplyCache) Put(t *ReplicateEntriesReply) {
+func (p *RequestVoteCache) Put(t *RequestVote) {
 	p.mu.Lock()
 	p.cache = append(p.cache, t)
 	p.mu.Unlock()
 }
-func (t *ReplicateEntriesReply) Marshal(wire io.Writer) {
-	var b [16]byte
+func (t *RequestVote) Marshal(wire io.Writer) {
+	var b [12]byte
 	var bs []byte
-	bs = b[:16]
-	tmp32 := t.ReplicaId
+	bs = b[:12]
+	tmp32 := t.SenderId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
 	bs[2] = byte(tmp32 >> 16)
@@ -634,71 +762,24 @@ func (t *ReplicateEntriesReply) Marshal(wire io.Writer) {
 	bs[5] = byte(tmp32 >> 8)
 	bs[6] = byte(tmp32 >> 16)
 	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.ReplicaBenOrIndex
+	tmp32 = t.CandidateBenOrIndex
 	bs[8] = byte(tmp32)
 	bs[9] = byte(tmp32 >> 8)
 	bs[10] = byte(tmp32 >> 16)
 	bs[11] = byte(tmp32 >> 24)
-	tmp32 = t.ReplicaPreparedIndex
-	bs[12] = byte(tmp32)
-	bs[13] = byte(tmp32 >> 8)
-	bs[14] = byte(tmp32 >> 16)
-	bs[15] = byte(tmp32 >> 24)
 	wire.Write(bs)
-	bs = b[:]
-	alen1 := int64(len(t.ReplicaEntries))
-	if wlen := binary.PutVarint(bs, alen1); wlen >= 0 {
-		wire.Write(b[0:wlen])
-	}
-	for i := int64(0); i < alen1; i++ {
-		t.ReplicaEntries[i].Marshal(wire)
-	}
-	bs = b[:8]
-	tmp32 = t.PrevLogIndex
-	bs[0] = byte(tmp32)
-	bs[1] = byte(tmp32 >> 8)
-	bs[2] = byte(tmp32 >> 16)
-	bs[3] = byte(tmp32 >> 24)
-	tmp32 = t.RequestedIndex
-	bs[4] = byte(tmp32)
-	bs[5] = byte(tmp32 >> 8)
-	bs[6] = byte(tmp32 >> 16)
-	bs[7] = byte(tmp32 >> 24)
-	wire.Write(bs)
-	t.Success.Marshal(wire)
 }
 
-func (t *ReplicateEntriesReply) Unmarshal(rr io.Reader) error {
-	var wire byteReader
-	var ok bool
-	if wire, ok = rr.(byteReader); !ok {
-		wire = bufio.NewReader(rr)
-	}
-	var b [16]byte
+func (t *RequestVote) Unmarshal(wire io.Reader) error {
+	var b [12]byte
 	var bs []byte
-	bs = b[:16]
-	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
+	bs = b[:12]
+	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
 		return err
 	}
-	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.ReplicaBenOrIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	t.ReplicaPreparedIndex = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
-	alen1, err := binary.ReadVarint(wire)
-	if err != nil {
-		return err
-	}
-	t.ReplicaEntries = make([]Entry, alen1)
-	for i := int64(0); i < alen1; i++ {
-		t.ReplicaEntries[i].Unmarshal(wire)
-	}
-	bs = b[:8]
-	if _, err := io.ReadAtLeast(wire, bs, 8); err != nil {
-		return err
-	}
-	t.PrevLogIndex = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
-	t.RequestedIndex = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.Success.Unmarshal(wire)
+	t.CandidateBenOrIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
 	return nil
 }
 
@@ -893,97 +974,23 @@ func (t *BenOrBroadcast) Unmarshal(wire io.Reader) error {
 	return nil
 }
 
-func (t *GetCommittedData) BinarySize() (nbytes int, sizeKnown bool) {
-	return 16, true
-}
-
-type GetCommittedDataCache struct {
-	mu	sync.Mutex
-	cache	[]*GetCommittedData
-}
-
-func NewGetCommittedDataCache() *GetCommittedDataCache {
-	c := &GetCommittedDataCache{}
-	c.cache = make([]*GetCommittedData, 0)
-	return c
-}
-
-func (p *GetCommittedDataCache) Get() *GetCommittedData {
-	var t *GetCommittedData
-	p.mu.Lock()
-	if len(p.cache) > 0 {
-		t = p.cache[len(p.cache)-1]
-		p.cache = p.cache[0:(len(p.cache) - 1)]
-	}
-	p.mu.Unlock()
-	if t == nil {
-		t = &GetCommittedData{}
-	}
-	return t
-}
-func (p *GetCommittedDataCache) Put(t *GetCommittedData) {
-	p.mu.Lock()
-	p.cache = append(p.cache, t)
-	p.mu.Unlock()
-}
-func (t *GetCommittedData) Marshal(wire io.Writer) {
-	var b [16]byte
-	var bs []byte
-	bs = b[:16]
-	tmp32 := t.SenderId
-	bs[0] = byte(tmp32)
-	bs[1] = byte(tmp32 >> 8)
-	bs[2] = byte(tmp32 >> 16)
-	bs[3] = byte(tmp32 >> 24)
-	tmp32 = t.Term
-	bs[4] = byte(tmp32)
-	bs[5] = byte(tmp32 >> 8)
-	bs[6] = byte(tmp32 >> 16)
-	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.StartIndex
-	bs[8] = byte(tmp32)
-	bs[9] = byte(tmp32 >> 8)
-	bs[10] = byte(tmp32 >> 16)
-	bs[11] = byte(tmp32 >> 24)
-	tmp32 = t.EndIndex
-	bs[12] = byte(tmp32)
-	bs[13] = byte(tmp32 >> 8)
-	bs[14] = byte(tmp32 >> 16)
-	bs[15] = byte(tmp32 >> 24)
-	wire.Write(bs)
-}
-
-func (t *GetCommittedData) Unmarshal(wire io.Reader) error {
-	var b [16]byte
-	var bs []byte
-	bs = b[:16]
-	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
-		return err
-	}
-	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
-	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.StartIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	t.EndIndex = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
-	return nil
-}
-
-func (t *GetCommittedDataReply) BinarySize() (nbytes int, sizeKnown bool) {
+func (t *BenOrConsensus) BinarySize() (nbytes int, sizeKnown bool) {
 	return 0, false
 }
 
-type GetCommittedDataReplyCache struct {
+type BenOrConsensusCache struct {
 	mu	sync.Mutex
-	cache	[]*GetCommittedDataReply
+	cache	[]*BenOrConsensus
 }
 
-func NewGetCommittedDataReplyCache() *GetCommittedDataReplyCache {
-	c := &GetCommittedDataReplyCache{}
-	c.cache = make([]*GetCommittedDataReply, 0)
+func NewBenOrConsensusCache() *BenOrConsensusCache {
+	c := &BenOrConsensusCache{}
+	c.cache = make([]*BenOrConsensus, 0)
 	return c
 }
 
-func (p *GetCommittedDataReplyCache) Get() *GetCommittedDataReply {
-	var t *GetCommittedDataReply
+func (p *BenOrConsensusCache) Get() *BenOrConsensus {
+	var t *BenOrConsensus
 	p.mu.Lock()
 	if len(p.cache) > 0 {
 		t = p.cache[len(p.cache)-1]
@@ -991,19 +998,19 @@ func (p *GetCommittedDataReplyCache) Get() *GetCommittedDataReply {
 	}
 	p.mu.Unlock()
 	if t == nil {
-		t = &GetCommittedDataReply{}
+		t = &BenOrConsensus{}
 	}
 	return t
 }
-func (p *GetCommittedDataReplyCache) Put(t *GetCommittedDataReply) {
+func (p *BenOrConsensusCache) Put(t *BenOrConsensus) {
 	p.mu.Lock()
 	p.cache = append(p.cache, t)
 	p.mu.Unlock()
 }
-func (t *GetCommittedDataReply) Marshal(wire io.Writer) {
-	var b [16]byte
+func (t *BenOrConsensus) Marshal(wire io.Writer) {
+	var b [24]byte
 	var bs []byte
-	bs = b[:16]
+	bs = b[:24]
 	tmp32 := t.SenderId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
@@ -1014,71 +1021,78 @@ func (t *GetCommittedDataReply) Marshal(wire io.Writer) {
 	bs[5] = byte(tmp32 >> 8)
 	bs[6] = byte(tmp32 >> 16)
 	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.StartIndex
+	tmp32 = t.Index
 	bs[8] = byte(tmp32)
 	bs[9] = byte(tmp32 >> 8)
 	bs[10] = byte(tmp32 >> 16)
 	bs[11] = byte(tmp32 >> 24)
-	tmp32 = t.EndIndex
+	tmp32 = t.Iteration
 	bs[12] = byte(tmp32)
 	bs[13] = byte(tmp32 >> 8)
 	bs[14] = byte(tmp32 >> 16)
 	bs[15] = byte(tmp32 >> 24)
+	tmp32 = t.Phase
+	bs[16] = byte(tmp32)
+	bs[17] = byte(tmp32 >> 8)
+	bs[18] = byte(tmp32 >> 16)
+	bs[19] = byte(tmp32 >> 24)
+	tmp32 = t.Vote
+	bs[20] = byte(tmp32)
+	bs[21] = byte(tmp32 >> 8)
+	bs[22] = byte(tmp32 >> 16)
+	bs[23] = byte(tmp32 >> 24)
 	wire.Write(bs)
-	bs = b[:]
-	alen1 := int64(len(t.Entries))
-	if wlen := binary.PutVarint(bs, alen1); wlen >= 0 {
-		wire.Write(b[0:wlen])
-	}
-	for i := int64(0); i < alen1; i++ {
-		t.Entries[i].Marshal(wire)
-	}
+	t.MajRequest.Marshal(wire)
+	t.LeaderRequest.Marshal(wire)
+	bs = b[:4]
+	tmp32 = t.EntryType
+	bs[0] = byte(tmp32)
+	bs[1] = byte(tmp32 >> 8)
+	bs[2] = byte(tmp32 >> 16)
+	bs[3] = byte(tmp32 >> 24)
+	wire.Write(bs)
 }
 
-func (t *GetCommittedDataReply) Unmarshal(rr io.Reader) error {
-	var wire byteReader
-	var ok bool
-	if wire, ok = rr.(byteReader); !ok {
-		wire = bufio.NewReader(rr)
-	}
-	var b [16]byte
+func (t *BenOrConsensus) Unmarshal(wire io.Reader) error {
+	var b [24]byte
 	var bs []byte
-	bs = b[:16]
-	if _, err := io.ReadAtLeast(wire, bs, 16); err != nil {
+	bs = b[:24]
+	if _, err := io.ReadAtLeast(wire, bs, 24); err != nil {
 		return err
 	}
 	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.StartIndex = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
-	t.EndIndex = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
-	alen1, err := binary.ReadVarint(wire)
-	if err != nil {
+	t.Index = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.Iteration = int32((uint32(bs[12]) | (uint32(bs[13]) << 8) | (uint32(bs[14]) << 16) | (uint32(bs[15]) << 24)))
+	t.Phase = int32((uint32(bs[16]) | (uint32(bs[17]) << 8) | (uint32(bs[18]) << 16) | (uint32(bs[19]) << 24)))
+	t.Vote = int32((uint32(bs[20]) | (uint32(bs[21]) << 8) | (uint32(bs[22]) << 16) | (uint32(bs[23]) << 24)))
+	t.MajRequest.Unmarshal(wire)
+	t.LeaderRequest.Unmarshal(wire)
+	bs = b[:4]
+	if _, err := io.ReadAtLeast(wire, bs, 4); err != nil {
 		return err
 	}
-	t.Entries = make([]Entry, alen1)
-	for i := int64(0); i < alen1; i++ {
-		t.Entries[i].Unmarshal(wire)
-	}
+	t.EntryType = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	return nil
 }
 
-func (t *InfoBroadcastReply) BinarySize() (nbytes int, sizeKnown bool) {
-	return 12, true
+func (t *InfoBroadcast) BinarySize() (nbytes int, sizeKnown bool) {
+	return 0, false
 }
 
-type InfoBroadcastReplyCache struct {
+type InfoBroadcastCache struct {
 	mu	sync.Mutex
-	cache	[]*InfoBroadcastReply
+	cache	[]*InfoBroadcast
 }
 
-func NewInfoBroadcastReplyCache() *InfoBroadcastReplyCache {
-	c := &InfoBroadcastReplyCache{}
-	c.cache = make([]*InfoBroadcastReply, 0)
+func NewInfoBroadcastCache() *InfoBroadcastCache {
+	c := &InfoBroadcastCache{}
+	c.cache = make([]*InfoBroadcast, 0)
 	return c
 }
 
-func (p *InfoBroadcastReplyCache) Get() *InfoBroadcastReply {
-	var t *InfoBroadcastReply
+func (p *InfoBroadcastCache) Get() *InfoBroadcast {
+	var t *InfoBroadcast
 	p.mu.Lock()
 	if len(p.cache) > 0 {
 		t = p.cache[len(p.cache)-1]
@@ -1086,20 +1100,20 @@ func (p *InfoBroadcastReplyCache) Get() *InfoBroadcastReply {
 	}
 	p.mu.Unlock()
 	if t == nil {
-		t = &InfoBroadcastReply{}
+		t = &InfoBroadcast{}
 	}
 	return t
 }
-func (p *InfoBroadcastReplyCache) Put(t *InfoBroadcastReply) {
+func (p *InfoBroadcastCache) Put(t *InfoBroadcast) {
 	p.mu.Lock()
 	p.cache = append(p.cache, t)
 	p.mu.Unlock()
 }
-func (t *InfoBroadcastReply) Marshal(wire io.Writer) {
-	var b [12]byte
+func (t *InfoBroadcast) Marshal(wire io.Writer) {
+	var b [8]byte
 	var bs []byte
-	bs = b[:12]
-	tmp32 := t.ReplicaId
+	bs = b[:8]
+	tmp32 := t.SenderId
 	bs[0] = byte(tmp32)
 	bs[1] = byte(tmp32 >> 8)
 	bs[2] = byte(tmp32 >> 16)
@@ -1109,23 +1123,19 @@ func (t *InfoBroadcastReply) Marshal(wire io.Writer) {
 	bs[5] = byte(tmp32 >> 8)
 	bs[6] = byte(tmp32 >> 16)
 	bs[7] = byte(tmp32 >> 24)
-	tmp32 = t.Counter
-	bs[8] = byte(tmp32)
-	bs[9] = byte(tmp32 >> 8)
-	bs[10] = byte(tmp32 >> 16)
-	bs[11] = byte(tmp32 >> 24)
 	wire.Write(bs)
+	t.ClientReq.Marshal(wire)
 }
 
-func (t *InfoBroadcastReply) Unmarshal(wire io.Reader) error {
-	var b [12]byte
+func (t *InfoBroadcast) Unmarshal(wire io.Reader) error {
+	var b [8]byte
 	var bs []byte
-	bs = b[:12]
-	if _, err := io.ReadAtLeast(wire, bs, 12); err != nil {
+	bs = b[:8]
+	if _, err := io.ReadAtLeast(wire, bs, 8); err != nil {
 		return err
 	}
-	t.ReplicaId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
+	t.SenderId = int32((uint32(bs[0]) | (uint32(bs[1]) << 8) | (uint32(bs[2]) << 16) | (uint32(bs[3]) << 24)))
 	t.Term = int32((uint32(bs[4]) | (uint32(bs[5]) << 8) | (uint32(bs[6]) << 16) | (uint32(bs[7]) << 24)))
-	t.Counter = int32((uint32(bs[8]) | (uint32(bs[9]) << 8) | (uint32(bs[10]) << 16) | (uint32(bs[11]) << 24)))
+	t.ClientReq.Unmarshal(wire)
 	return nil
 }

@@ -22,6 +22,8 @@ type Entry struct {
     Index	        int32
     BenOrActive     bool
     Timestamp       int64
+    FromLeader      bool
+    // Valid           bool
 }
 
 type ReplicateEntries struct {
@@ -92,32 +94,40 @@ type BenOrBroadcastReply struct {
 type BenOrConsensus struct {
     SenderId		   				int32
     Term							int32
-    Counter							int32
+    Index                           int32
+    Iteration						int32 // iteration
     Phase							int32
     Vote							int32
     MajRequest						state.Command
-    LeaderRequest					state.Command
-    EntryType						int32
+    LeaderRequest					Entry
+    EntryType						int32 // 0 or 1 depending on BenOr stage
 }
 
 type BenOrConsensusReply struct {
     ReplicaId	   					int32
     Term							int32
-    Counter                         int32
-    CommittedEntry					Entry
+    Index                           int32
+    Iteration                       int32
+    Phase                           int32
+    Vote                            int32
+    MajRequest                      state.Command
+    LeaderRequest                   Entry
+    EntryType                       int32
+    // IndexCommitted                  bool // true if replica has committed entry
+    // CommittedEntry					Entry
 }
 
 type GetCommittedData struct {
     SenderId           				int32
     Term               				int32
-    StartIndex                       int32
+    StartIndex                      int32
     EndIndex                        int32 // inclusive
 }
 
 type GetCommittedDataReply struct {
     SenderId           				int32
     Term               				int32
-    StartIndex                       int32
+    StartIndex                      int32
     EndIndex                        int32 // inclusive
     Entries                         []Entry
 }
@@ -125,12 +135,12 @@ type GetCommittedDataReply struct {
 type InfoBroadcast struct {
     SenderId		   				int32
     Term							int32
-    Counter							int32
+    // Counter							int32
     ClientReq						Entry
 }
 
 type InfoBroadcastReply struct {
     ReplicaId	   					int32
     Term							int32
-    Counter                         int32
+    // Counter                         int32
 }
