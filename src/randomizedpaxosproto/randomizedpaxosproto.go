@@ -98,7 +98,7 @@ type BenOrConsensus struct {
     Iteration						int32 // iteration
     Phase							int32
     Vote							int32
-    MajRequest						state.Command
+    MajRequest						Entry
     LeaderRequest					Entry
     EntryType						int32 // 0 or 1 depending on BenOr stage
 }
@@ -110,7 +110,7 @@ type BenOrConsensusReply struct {
     Iteration                       int32
     Phase                           int32
     Vote                            int32
-    MajRequest                      state.Command
+    MajRequest                      Entry
     LeaderRequest                   Entry
     EntryType                       int32
     // IndexCommitted                  bool // true if replica has committed entry
