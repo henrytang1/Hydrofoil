@@ -2,6 +2,7 @@ package genericsmr
 
 import (
 	"bufio"
+	"bytes"
 	"dlog"
 	"encoding/binary"
 	"fastrpc"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"rdtsc"
 	"state"
+	"sync"
 	"time"
 )
 
@@ -139,6 +141,61 @@ func (r *Replica) BeTheLeader2(args *genericsmrproto.BeTheLeaderArgs, reply *gen
 	return nil
 }
 
+type SimConn struct {
+    *bytes.Buffer
+	mu            	sync.Mutex
+	connected 		bool // connected bool
+}
+
+func NewSimConn() *SimConn{
+	return &SimConn{
+		Buffer: new(bytes.Buffer),
+		connected: true,
+	}
+}
+
+func (c *SimConn) Read(b []byte) (n int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Buffer.Read(b)
+}
+
+func (c *SimConn) Write(b []byte) (n int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if (!c.connected) {
+		return 0, nil
+	}
+	return c.Buffer.Write(b)
+}
+
+func (c *SimConn) Disconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = false
+}
+
+func (c *SimConn) Connect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = true
+}
+
+func (r *Replica) ConnectToPeersSim(serverId int, simConnIn *SimConn, simConnOut *SimConn) {
+	r.Alive[serverId] = true
+	r.PeerReaders[serverId] = bufio.NewReader(simConnIn)
+	r.PeerWriters[serverId] = bufio.NewWriter(simConnOut)
+}
+
+func (r *Replica) ConnectListenToPeers() {
+	for rid, reader := range r.PeerReaders {
+		if int32(rid) == r.Id {
+			continue
+		}
+		go r.replicaListener(rid, reader)
+	}
+}
+
 /* ============= */
 
 func (r *Replica) ConnectToPeers() {
@@ -254,68 +311,68 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 	var gbeacon genericsmrproto.Beacon
 	var gbeaconReply genericsmrproto.BeaconReply
 
-	var timer05ms *time.Timer
-	var timer1ms *time.Timer
-	var timer2ms *time.Timer
-	var timer5ms *time.Timer
-	var timer10ms *time.Timer
-	var timer20ms *time.Timer
-	var timer40ms *time.Timer
-	var timer80ms *time.Timer
-	allFired := false
-	INJECT_SLOWDOWN := false
-	if r.Id == int32(0) && INJECT_SLOWDOWN {
-		timer05ms = time.NewTimer(48 * time.Second)
-		timer1ms = time.NewTimer(49 * time.Second)
-		timer2ms = time.NewTimer(50 * time.Second)
-		timer5ms = time.NewTimer(51 * time.Second)
-		timer10ms = time.NewTimer(52 * time.Second)
-		timer20ms = time.NewTimer(53 * time.Second)
-		timer40ms = time.NewTimer(54 * time.Second)
-		timer80ms = time.NewTimer(55 * time.Second)
-	}
+	// var timer05ms *time.Timer
+	// var timer1ms *time.Timer
+	// var timer2ms *time.Timer
+	// var timer5ms *time.Timer
+	// var timer10ms *time.Timer
+	// var timer20ms *time.Timer
+	// var timer40ms *time.Timer
+	// var timer80ms *time.Timer
+	// allFired := false
+	// INJECT_SLOWDOWN := false
+	// if r.Id == int32(0) && INJECT_SLOWDOWN {
+	// 	timer05ms = time.NewTimer(48 * time.Second)
+	// 	timer1ms = time.NewTimer(49 * time.Second)
+	// 	timer2ms = time.NewTimer(50 * time.Second)
+	// 	timer5ms = time.NewTimer(51 * time.Second)
+	// 	timer10ms = time.NewTimer(52 * time.Second)
+	// 	timer20ms = time.NewTimer(53 * time.Second)
+	// 	timer40ms = time.NewTimer(54 * time.Second)
+	// 	timer80ms = time.NewTimer(55 * time.Second)
+	// }
 	for err == nil && !r.Shutdown {
 
-		if r.Id == int32(0) && INJECT_SLOWDOWN && !allFired {
-			select {
-			case <-timer05ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 0.5ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(500 * time.Microsecond)
+		// if r.Id == int32(0) && INJECT_SLOWDOWN && !allFired {
+		// 	select {
+		// 	case <-timer05ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 0.5ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(500 * time.Microsecond)
 
-			case <-timer1ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 1ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(1 * time.Millisecond)
+		// 	case <-timer1ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 1ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(1 * time.Millisecond)
 
-			case <-timer2ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 2ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(2 * time.Millisecond)
+		// 	case <-timer2ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 2ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(2 * time.Millisecond)
 
-			case <-timer5ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 5ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(5 * time.Millisecond)
+		// 	case <-timer5ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 5ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(5 * time.Millisecond)
 
-			case <-timer10ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 10ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(10 * time.Millisecond)
+		// 	case <-timer10ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 10ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(10 * time.Millisecond)
 
-			case <-timer20ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 20ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(20 * time.Millisecond)
+		// 	case <-timer20ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 20ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(20 * time.Millisecond)
 
-			case <-timer40ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 40ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(40 * time.Millisecond)
+		// 	case <-timer40ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 40ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(40 * time.Millisecond)
 
-			case <-timer80ms.C:
-				fmt.Printf("Replica %v: replicaListenerTimer 80ms fired at %v\n", r.Id, time.Now())
-				allFired = true
-				time.Sleep(80 * time.Millisecond)
+		// 	case <-timer80ms.C:
+		// 		fmt.Printf("Replica %v: replicaListenerTimer 80ms fired at %v\n", r.Id, time.Now())
+		// 		allFired = true
+		// 		time.Sleep(80 * time.Millisecond)
 
-			default:
-				break
+		// 	default:
+		// 		break
 
-			}
-		}
+		// 	}
+		// }
 
 		if msgType, err = reader.ReadByte(); err != nil {
 			break
@@ -341,6 +398,7 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 			break
 
 		default:
+			// NOTE: sends value here
 			if rpair, present := r.rpcTable[msgType]; present {
 				obj := rpair.Obj.New()
 				if err = obj.Unmarshal(reader); err != nil {
@@ -360,69 +418,69 @@ func (r *Replica) clientListener(conn net.Conn) {
 	var msgType byte //:= make([]byte, 1)
 	var err error
 
-	var timer05ms *time.Timer
-	var timer1ms *time.Timer
-	var timer2ms *time.Timer
-	var timer5ms *time.Timer
-	var timer10ms *time.Timer
-	var timer20ms *time.Timer
-	var timer40ms *time.Timer
-	var timer80ms *time.Timer
-	allFired := false
-	INJECT_SLOWDOWN := false
-	if r.Id == int32(0) && INJECT_SLOWDOWN {
-		timer05ms = time.NewTimer(42 * time.Second)
-		timer1ms = time.NewTimer(43 * time.Second)
-		timer2ms = time.NewTimer(44 * time.Second)
-		timer5ms = time.NewTimer(45 * time.Second)
-		timer10ms = time.NewTimer(46 * time.Second)
-		timer20ms = time.NewTimer(47 * time.Second)
-		timer40ms = time.NewTimer(48 * time.Second)
-		timer80ms = time.NewTimer(49 * time.Second)
-	}
+	// var timer05ms *time.Timer
+	// var timer1ms *time.Timer
+	// var timer2ms *time.Timer
+	// var timer5ms *time.Timer
+	// var timer10ms *time.Timer
+	// var timer20ms *time.Timer
+	// var timer40ms *time.Timer
+	// var timer80ms *time.Timer
+	// allFired := false
+	// INJECT_SLOWDOWN := false
+	// if r.Id == int32(0) && INJECT_SLOWDOWN {
+	// 	timer05ms = time.NewTimer(42 * time.Second)
+	// 	timer1ms = time.NewTimer(43 * time.Second)
+	// 	timer2ms = time.NewTimer(44 * time.Second)
+	// 	timer5ms = time.NewTimer(45 * time.Second)
+	// 	timer10ms = time.NewTimer(46 * time.Second)
+	// 	timer20ms = time.NewTimer(47 * time.Second)
+	// 	timer40ms = time.NewTimer(48 * time.Second)
+	// 	timer80ms = time.NewTimer(49 * time.Second)
+	// }
 
 	for !r.Shutdown && err == nil {
 
-		if r.Id == int32(0) && INJECT_SLOWDOWN && !allFired {
-			select {
-			case <-timer05ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 0.5ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(500 * time.Microsecond)
+		// if r.Id == int32(0) && INJECT_SLOWDOWN && !allFired {
+		// 	select {
+		// 	case <-timer05ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 0.5ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(500 * time.Microsecond)
 
-			case <-timer1ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 1ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(1 * time.Millisecond)
+		// 	case <-timer1ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 1ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(1 * time.Millisecond)
 
-			case <-timer2ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 2ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(2 * time.Millisecond)
+		// 	case <-timer2ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 2ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(2 * time.Millisecond)
 
-			case <-timer5ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 5ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(5 * time.Millisecond)
+		// 	case <-timer5ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 5ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(5 * time.Millisecond)
 
-			case <-timer10ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 10ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(10 * time.Millisecond)
+		// 	case <-timer10ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 10ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(10 * time.Millisecond)
 
-			case <-timer20ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 20ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(20 * time.Millisecond)
+		// 	case <-timer20ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 20ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(20 * time.Millisecond)
 
-			case <-timer40ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 40ms fired at %v\n", r.Id, time.Now())
-				time.Sleep(40 * time.Millisecond)
+		// 	case <-timer40ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 40ms fired at %v\n", r.Id, time.Now())
+		// 		time.Sleep(40 * time.Millisecond)
 
-			case <-timer80ms.C:
-				fmt.Printf("Replica %v: clientListenerTimer 80ms fired at %v\n", r.Id, time.Now())
-				allFired = true
-				time.Sleep(80 * time.Millisecond)
+		// 	case <-timer80ms.C:
+		// 		fmt.Printf("Replica %v: clientListenerTimer 80ms fired at %v\n", r.Id, time.Now())
+		// 		allFired = true
+		// 		time.Sleep(80 * time.Millisecond)
 
-			default:
-				break
+		// 	default:
+		// 		break
 
-			}
-		}
+		// 	}
+		// }
 
 		if msgType, err = reader.ReadByte(); err != nil {
 			break

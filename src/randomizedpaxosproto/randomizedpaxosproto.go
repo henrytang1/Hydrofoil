@@ -20,10 +20,10 @@ type Entry struct {
     SenderId        int32
     Term 	        int32
     Index	        int32
-    BenOrActive     bool
+    BenOrActive     uint8 // bool
     Timestamp       int64
-    FromLeader      bool
-    // Valid           bool
+    FromLeader      uint8 // bool
+    // Valid           uint8 // bool
 }
 
 type ReplicateEntries struct {
@@ -49,7 +49,7 @@ type ReplicateEntriesReply struct {
     // EntryAtLeaderBenOrIndex     	Entry
     PrevLogIndex					int32
     RequestedIndex					int32
-    Success							bool
+    Success							uint8 // bool
 }
 
 type RequestVote struct {
@@ -63,7 +63,7 @@ type RequestVoteReply struct {
     ReplicaId	   					int32
     Term							int32
     // Counter							int32
-    VoteGranted						bool
+    VoteGranted						uint8 // bool
     ReplicaBenOrIndex				int32
     ReplicaPreparedIndex			int32
     ReplicaEntries					[]Entry
@@ -113,7 +113,7 @@ type BenOrConsensusReply struct {
     MajRequest                      Entry
     LeaderRequest                   Entry
     EntryType                       int32
-    // IndexCommitted                  bool // true if replica has committed entry
+    // IndexCommitted                  uint8 // bool // true if replica has committed entry
     // CommittedEntry					Entry
 }
 

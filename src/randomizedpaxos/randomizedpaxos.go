@@ -20,6 +20,12 @@ import (
 // 	One
 // 	Unknown
 // )
+type Entry = randomizedpaxosproto.Entry
+
+const (
+	False uint8 = iota
+	True
+)
 
 const ( // for benOrStatus
 	Broadcasting uint8 = iota
@@ -50,25 +56,10 @@ type RPCCounter struct {
 	count	int
 }
 
-type BenOrState struct {
-	benOrStatus						uint8
-	benOrIteration					int
-	benOrPhase						int
-
-	benOrVote						int
-	benOrMajRequest					randomizedpaxosproto.Entry
-
-	// benOrStage					uint8
-	benOrBroadcastRequest 			randomizedpaxosproto.Entry
-	// benOrWaitingForIndex			int
-	benOrRepliesReceived			int
-	benOrConsensusMessages			[]randomizedpaxosproto.BenOrConsensus
-	benOrBroadcastMessages			[]randomizedpaxosproto.BenOrBroadcast
-	biasedCoin						bool
-}
-
 type Replica struct {
 	*genericsmr.Replica // extends a generic Paxos replica
+
+	isProduction 					bool
 	replicateEntriesChan         	chan fastrpc.Serializable
 	replicateEntriesReplyChan		chan fastrpc.Serializable
 	requestVoteChan		          	chan fastrpc.Serializable
@@ -107,14 +98,14 @@ type Replica struct {
 	benOrStartWaitTimeout			int
 	benOrResendTimeout				int
 	currentTerm						int
-	log								[]randomizedpaxosproto.Entry
+	log								[]Entry
 	pq								ExtendedPriorityQueue // to be fixed
 
 	benOrState						BenOrState
 	benOrIndex						int
 	preparedIndex					int // length of the log that has been prepared except for at most 1 entry that's still running benOr
 	lastApplied						int
-	entries							[]randomizedpaxosproto.Entry
+	entries							[]Entry
 	nextIndex						[]int
 	matchIndex						[]int // highest known prepared index for each replica
 	commitIndex						[]int // highest known commit index for each replica
@@ -122,7 +113,7 @@ type Replica struct {
 	highestTimestamp				[]int64 // highest timestamp seen from each replica (used to ignore old requests)
 	votesReceived					int
 	votedFor						int
-	requestVoteEntries				[]randomizedpaxosproto.Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
+	requestVoteEntries				[]Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
 	// requestVoteBenOrIndex		int
 	// requestVotePreparedIndex		int
 
@@ -181,9 +172,11 @@ func (r *Replica) sync() {
 	r.StableStore.Sync()
 }
 
-func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
+// Entry point
+func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
 	r := &Replica{
 		Replica: genericsmr.NewReplica(id, peerAddrList, thrifty, exec, dreply),
+		isProduction: isProduction,
 		replicateEntriesChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		replicateEntriesReplyChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		requestVoteChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
@@ -219,7 +212,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		benOrStartWaitTimeout: 0,
 		benOrResendTimeout: 0,
 		currentTerm: 0,
-		log: make([]randomizedpaxosproto.Entry, 0),
+		log: make([]Entry, 0),
 		pq: newExtendedPriorityQueue(),
 		benOrState: BenOrState{
 			benOrStatus: Stopped,
@@ -232,7 +225,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 			benOrRepliesReceived: 0,
 			// benOrStage: StageOne,
 			benOrConsensusMessages: make([]randomizedpaxosproto.BenOrConsensus, 0),
-			benOrBroadcastMessages: make([]randomizedpaxosproto.BenOrBroadcast, 0),
+			benOrBroadcastMessages: make([]BenOrBroadcastData, 0),
 			biasedCoin: false,
 		},
 		benOrIndex: 1,
@@ -240,7 +233,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		lastApplied: 0, // 0 entry is already applied (it's an empty entry)
 		// first entry is a default useless entry (to make edge cases easier)
 		// second entry is the initial BenOr entry (but BenOr is not started yet)
-		entries: make([]randomizedpaxosproto.Entry, 2),
+		entries: make([]Entry, 2),
 		nextIndex: make([]int, 0),
 		matchIndex: make([]int, 0),
 		commitIndex: make([]int, 0),
@@ -248,7 +241,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		highestTimestamp: make([]int64, 0),
 		votesReceived: 0,
 		votedFor: -1,
-		requestVoteEntries: make([]randomizedpaxosproto.Entry, 0),
+		requestVoteEntries: make([]Entry, 0),
 		clientWriters: make(map[uint32]*bufio.Writer),
 		heartbeatTimer: nil,
 		electionTimer: nil,
@@ -257,24 +250,24 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 	}
 
 	r.Durable = durable
-	r.entries[0] = randomizedpaxosproto.Entry{
+	r.entries[0] = Entry{
 		Data: state.Command{},
 		SenderId: -1,
 		Term: -1,
 		Index: 0,
-		BenOrActive: false,
+		BenOrActive: False,
 		Timestamp: -1,
-		FromLeader: false, // this initial entry shouldn't matter
+		FromLeader: False, // this initial entry shouldn't matter
 	}
 
-	r.entries[1] = randomizedpaxosproto.Entry{
+	r.entries[1] = Entry{
 		Data: state.Command{},
 		SenderId: -1,
 		Term: -1,
 		Index: 1,
-		BenOrActive: true,
+		BenOrActive: True,
 		Timestamp: -1,
-		FromLeader: false,
+		FromLeader: False,
 	}
 
 	r.replicateEntriesRPC = r.RegisterRPC(new(randomizedpaxosproto.ReplicateEntries), r.replicateEntriesChan)
@@ -324,55 +317,16 @@ func (r *Replica) clock() {
 	}
 }
 
-func min(a, b int) int {
-    if a < b {
-        return a
-    }
-    return b
-}
-
-func max(a, b int) int {
-	if a > b { 
-		return a
-	}
-	return b
-}
-
-// called when the timer has not yet fired
-func (r *Replica) resetTimer(t *time.Timer, d time.Duration) {
-	if t == nil {
-		t = time.NewTimer(d)
-		return
-	}
-	if !t.Stop() {
-		<-t.C
-	}
-	t.Reset(d)
-}
-
-// called when the timer has already fired
-func (r *Replica) setTimer(t *time.Timer, d time.Duration) {
-	if t == nil {
-		t = time.NewTimer(d)
-		return
-	}
-	t.Reset(d)
-}
-
-func (r *Replica) clearTimer(t *time.Timer) {
-	if !t.Stop() {
-		<-t.C
-	}
-}
-
 /* Main event processing loop */
 func (r *Replica) run() {
 
-	r.ConnectToPeers()
+	if (r.isProduction) { 
+		r.ConnectToPeers()
 
-	dlog.Println("Waiting for client connections")
+		dlog.Println("Waiting for client connections")
 
-	go r.WaitForClientConnections()
+		go r.WaitForClientConnections() // TODO: remove for testing 
+	}
 
 	// if r.Exec {
 	// 	go r.executeCommands()
@@ -517,14 +471,10 @@ func (r *Replica) run() {
 			
 			case <- r.heartbeatTimer.C:
 				//got a heartbeat timeout
-				timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
-				r.setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 				r.sendHeartbeat()
 			
 			case <- r.electionTimer.C:
 				//got an election timeout
-				timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-				r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 				r.startElection()
 			
 			case <- r.benOrStartWaitTimer.C:
@@ -532,8 +482,6 @@ func (r *Replica) run() {
 				r.startBenOrPlus()
 
 			case <- r.benOrResendTimer.C:
-				timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-				r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
 				r.resendBenOrTimer()
 		}
 	}
@@ -555,25 +503,13 @@ func (r *Replica) registerClient(clientId uint32, writer *bufio.Writer) uint8 {
 	return FALSE
 }
 
-func (r *Replica) bcastReplicateEntries() {
-	// r.replicateEntriesCounter = rpcCounter{r.currentTerm, r.replicateEntriesCounter.count+1}
-	for i := 0; i < r.N; i++ {
-		if int32(i) != r.Id {
-			args := &randomizedpaxosproto.ReplicateEntries{
-				r.Id, int32(r.currentTerm),
-				int32(r.nextIndex[i]-1), int32(r.log[r.nextIndex[i]-1].Term),
-				r.log[r.nextIndex[i]:], int32(r.benOrIndex), int32(r.preparedIndex)}
-
-			r.SendMsg(int32(i), r.replicateEntriesRPC, args)
-		}
-	}
-}
-
 func (r *Replica) sendHeartbeat () {
+	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
+	r.setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 	r.bcastReplicateEntries()
 }
 
-func (r *Replica) bcastInfoBroadcast(clientReq randomizedpaxosproto.Entry) {
+func (r *Replica) bcastInfoBroadcast(clientReq Entry) {
 	// r.infoBroadcastCounter = rpcCounter{r.currentTerm, r.infoBroadcastCounter.count+1}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
@@ -586,7 +522,7 @@ func (r *Replica) bcastInfoBroadcast(clientReq randomizedpaxosproto.Entry) {
 }
 
 func (r *Replica) handlePropose(propose *genericsmr.Propose) {
-	newLogEntry := randomizedpaxosproto.Entry{
+	newLogEntry := Entry{
 		Data: propose.Command,
 		SenderId: r.Id,
 		// Term: int32(r.currentTerm),
@@ -594,7 +530,7 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 		Term: -1,
 		Index: -1,
 		Timestamp: r.currentTimer.UnixNano(),
-		FromLeader: false,
+		FromLeader: False,
 		}
 
 	if r.isLeader {
@@ -628,340 +564,6 @@ func (r *Replica) handleInfoBroadcast(rpc *randomizedpaxosproto.InfoBroadcast) {
 	return
 }
 
-func (r *Replica) benOrRunning() bool {
-	return (r.benOrState.benOrStatus == Broadcasting || 
-		r.benOrState.benOrStatus == StageOne || 
-		r.benOrState.benOrStatus == StageTwo)
-}
-
-func benOrUncommittedLogEntry(idx int) randomizedpaxosproto.Entry {
-	return randomizedpaxosproto.Entry{
-		Data: state.Command{},
-		SenderId: -1,
-		Term: -1, // term -1 means that this is a Ben-Or+ entry that hasn't yet committed
-		Index: int32(idx),
-		BenOrActive: true,
-		Timestamp: -1,
-		FromLeader: false,
-		}
-}
-
-func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntries) {
-	replicaEntries := make([]randomizedpaxosproto.Entry, 0)
-	if int(rpc.LeaderPreparedIndex)+1 < len(r.log) {
-		replicaEntries = r.log[rpc.LeaderPreparedIndex+1:]
-	}
-
-	entryAtLeaderBenOrIndex := benOrUncommittedLogEntry(-1)
-	entryAtLeaderBenOrIndex.Term = -1
-	if int(rpc.LeaderBenOrIndex) < len(r.log) {
-		entryAtLeaderBenOrIndex = r.log[rpc.LeaderBenOrIndex]
-	}
-
-	args := &randomizedpaxosproto.ReplicateEntriesReply{
-		ReplicaId: r.Id,
-		Term: int32(r.currentTerm),
-		// Counter: int32(r.infoBroadcastCounter.count),
-		ReplicaBenOrIndex: int32(r.benOrIndex),
-		ReplicaPreparedIndex: int32(r.preparedIndex),
-		ReplicaEntries: replicaEntries,
-		// LeaderPreparedIndex: rpc.LeaderPreparedIndex,
-		// LeaderBenOrIndex: rpc.LeaderBenOrIndex,
-		// EntryAtLeaderBenOrIndex: entryAtLeaderBenOrIndex,
-		PrevLogIndex: rpc.PrevLogIndex,
-		RequestedIndex: int32(rpc.PrevLogIndex)-1,
-		Success: false}
-
-	// reject if the term is out of date
-	if (int(rpc.Term) < r.currentTerm) {
-		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
-		return
-	}
-
-	// update to follower if received term is newer
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-		r.isLeader = false
-	}
-
-	// a term of -1 means that the entry is committed using Ben-Or+
-	// we assume that r.entries[rpc.PrevLogIndex] is not currently running Ben-Or+
-	// reject if the previous term doesn't match
-	// if entry at previous term is running Ben-Or+, then we must reject and ask the leader to send over another entry
-	if (r.entries[rpc.PrevLogIndex].Term != rpc.PrevLogTerm || r.entries[rpc.PrevLogIndex].BenOrActive) {
-		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
-		return
-	}
-
-	// tell leader to update itself if it's out of date
-	// alternatively, this is an out of date message
-	if r.preparedIndex > int(rpc.LeaderPreparedIndex) {
-		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
-		return
-	}
-
-	// TODO: get rid of this later since I think it's uneccessary logic
-	// if this is a heartbeat, then we can just return
-	if (len(rpc.Entries) == 0) {
-		// this is a heartbeat
-		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
-		return
-	}
-
-	// args = &randomizedpaxosproto.ReplicateEntriesReply{}
-	// if (rpc.LeaderBenOrIndex <= int32(r.benOrIndex)) {
-	// 	args.EntryAtLeaderBenOrIndex = r.log[rpc.LeaderBenOrIndex]
-	// }
-	currentCommitPoint := r.benOrIndex-1
-	newCommitPoint := max(currentCommitPoint, int(rpc.LeaderBenOrIndex)-1)
-	newPreparedPoint := int(rpc.LeaderPreparedIndex)
-	firstEntryIndex := int(rpc.PrevLogIndex)+1
-
-	logLength := len(r.log)
-
-	benOrIndexChanged := false
-	i := currentCommitPoint+1
-
-	for ; i < logLength; i++ {
-		if (i < firstEntryIndex) {
-			continue
-		}
-		if (r.log[i].Term != rpc.Entries[i-firstEntryIndex].Term) {
-			if (r.log[i].BenOrActive) {
-				r.log[i] = rpc.Entries[i-firstEntryIndex]
-				if !rpc.Entries[i-firstEntryIndex].BenOrActive && i <= newPreparedPoint {
-					benOrIndexChanged = true
-					continue
-				}
-
-				if r.benOrState.benOrStatus == Stopped {
-					// don't need to do anything else
-				} else if r.benOrState.benOrStatus == Broadcasting {
-					r.benOrState.biasedCoin = true
-				} else { // r.benOrStatus == BenOrRunning
-					// can't do anything here
-				}
-			} else if (rpc.Entries[i-firstEntryIndex].BenOrActive) {
-				// use current entry instead
-				continue
-			} else {
-				r.log = append(r.log[:i], rpc.Entries[i-firstEntryIndex:]...)
-				break
-			}
-		}
-	}
-
-	if i == logLength {
-		r.log = append(r.log, rpc.Entries[i-firstEntryIndex:]...)
-	}
-
-	if benOrIndexChanged {
-		r.benOrIndex = newCommitPoint+1
-		r.benOrState.benOrStatus = Stopped
-		r.benOrState.biasedCoin = false
-		if (r.benOrIndex < len(r.log)) {
-			r.log[r.benOrIndex].BenOrActive = true
-		} else {
-			r.log[r.benOrIndex] = benOrUncommittedLogEntry(len(r.log))
-		}
-	}
-
-	for i := currentCommitPoint+1; i <= len(r.log); i++ {
-		r.pq.remove(r.log[i])
-	}
-
-	// extract values from priority queue and append them
-	replicaEntries = append(replicaEntries, r.pq.extractList()...)
-
-	args = &randomizedpaxosproto.ReplicateEntriesReply{
-		ReplicaId: r.Id,
-		Term: int32(r.currentTerm),
-		// Counter: int32(r.infoBroadcastCounter.count),
-		ReplicaBenOrIndex: int32(r.benOrIndex),
-		ReplicaPreparedIndex: int32(r.preparedIndex),
-		ReplicaEntries: replicaEntries,
-		// LeaderPreparedIndex: rpc.LeaderPreparedIndex,
-		// LeaderBenOrIndex: rpc.LeaderBenOrIndex,
-		// EntryAtLeaderBenOrIndex: entryAtLeaderBenOrIndex,
-		PrevLogIndex: rpc.PrevLogIndex,
-		RequestedIndex: int32(r.benOrIndex),
-		Success: true}
-
-	r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
-	return
-}
-
-
-func (r *Replica) startElection() {
-	r.currentTerm++
-	r.votedFor = int(r.Id)
-	r.votesReceived = 1 // itself
-	r.requestVoteEntries = append(r.log[r.preparedIndex+1:], r.pq.extractList()...)
-
-	args := &randomizedpaxosproto.RequestVote{
-		SenderId: r.Id,
-		Term: int32(r.currentTerm),
-		CandidateBenOrIndex: int32(r.benOrIndex),
-	}
-
-	r.SendMsg(r.Id, r.requestVoteRPC, args)
-}
-
-
-func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
-	replicaEntries := make([]randomizedpaxosproto.Entry, 0)
-	if int(rpc.CandidateBenOrIndex)+1 < len(r.log) {
-		replicaEntries = r.log[rpc.CandidateBenOrIndex:]
-	}
-
-	entryAtCandidateBenOrIndex := benOrUncommittedLogEntry(-1)
-	entryAtCandidateBenOrIndex.Term = -1
-	if int(rpc.CandidateBenOrIndex) < len(r.log) {
-		entryAtCandidateBenOrIndex = r.log[rpc.CandidateBenOrIndex]
-	}
-	
-	args := &randomizedpaxosproto.RequestVoteReply{
-		ReplicaId: r.Id,
-		Term: int32(r.currentTerm),
-		// Counter: int32(r.infoBroadcastCounter.count),
-		VoteGranted: false,
-		ReplicaBenOrIndex: int32(r.benOrIndex),
-		ReplicaPreparedIndex: int32(r.preparedIndex),
-		ReplicaEntries: replicaEntries,
-		CandidateBenOrIndex: rpc.CandidateBenOrIndex,
-		EntryAtCandidateBenOrIndex: entryAtCandidateBenOrIndex}
-
-	if rpc.Term < int32(r.currentTerm) {
-		r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
-		return
-	}
-
-	if rpc.Term == int32(r.currentTerm) && r.votedFor != -1 {
-		r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
-		return
-	}
-
-	if int(rpc.Term) > r.currentTerm {
-		r.currentTerm = int(rpc.Term)
-		r.isLeader = false
-	}
-
-	args.VoteGranted = true
-	r.votedFor = int(rpc.SenderId)
-	r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
-	return
-}
-
-
-func (r *Replica) handleRequestVoteReply (rpc *randomizedpaxosproto.RequestVoteReply) {
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-		
-		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-		r.isLeader = false
-		r.votesReceived = 0
-		r.requestVoteEntries = make([]randomizedpaxosproto.Entry, 0)
-		return
-	}
-	
-	if (r.isLeader || int(rpc.Term) < r.currentTerm) {
-		// ignore these entries
-		return
-	}
-
-	currentCommitPoint := r.benOrIndex-1
-	currentPreparedPoint := r.preparedIndex
-	newCommitPoint := max(currentCommitPoint, int(rpc.ReplicaBenOrIndex)-1)
-	newPreparedPoint := max(r.preparedIndex, int(rpc.ReplicaPreparedIndex))
-	firstEntryIndex := int(rpc.CandidateBenOrIndex) + 1
-
-	// add new committed entries from returning rpc
-	for i := r.benOrIndex; i < int(rpc.ReplicaPreparedIndex); i++ {
-		idx := i - firstEntryIndex
-		if i < len(r.log) {
-			if (r.log[i].Term != rpc.ReplicaEntries[idx].Term) {
-				if (r.log[i].BenOrActive) {
-					if !rpc.ReplicaEntries[idx].BenOrActive && i <= newPreparedPoint {
-						// r.requestVoteEntries[i] = rpc.ReplicaEntries[idx]
-						r.log[i] = rpc.ReplicaEntries[idx]
-						continue
-					}
-					// else, use current entry
-				} else if (rpc.ReplicaEntries[idx].BenOrActive) {
-					// use current entry instead
-					continue
-				} else { // neither requestVoteEntries[i] or rpc.ReplicaEntries[idx] is benOrActive
-					// r.requestVoteEntries[idx] = rpc.ReplicaEntries[idx]
-					r.log = append(r.log[:i], rpc.ReplicaEntries[idx:newPreparedPoint+1]...)
-					break
-				}
-			}
-		} else {
-			r.log = append(r.log, rpc.ReplicaEntries[idx:newPreparedPoint+1]...)
-			// r.requestVoteEntries = append(r.requestVoteEntries, rpc.ReplicaEntries[idx])
-		}
-	}
-
-	r.benOrIndex = newCommitPoint+1
-	r.preparedIndex = newPreparedPoint
-
-	// remove elements elements that have for sure been committed from requestVoteEntries
-	r.requestVoteEntries = r.requestVoteEntries[r.preparedIndex-currentPreparedPoint:]
-
-	if rpc.VoteGranted {
-		r.votesReceived++
-
-		start := newPreparedPoint + 1
-		if r.benOrRunning() && r.log[start].BenOrActive {
-			start++
-		}
-
-		for i := newPreparedPoint + 1; i < firstEntryIndex + len(rpc.ReplicaEntries); i++ {
-			idxRPC := i - firstEntryIndex
-			idxRVEntries := i - newPreparedPoint - 1
-			if idxRVEntries < len(r.requestVoteEntries) {
-				if (r.requestVoteEntries[idxRVEntries].Term < rpc.ReplicaEntries[idxRPC].Term) {
-					r.requestVoteEntries[idxRVEntries] = rpc.ReplicaEntries[idxRPC]
-				}
-			} else {
-				r.requestVoteEntries = append(r.requestVoteEntries, rpc.ReplicaEntries[idxRPC])
-				break
-			}
-		}
-	}
-
-	if (r.votesReceived > r.N/2) {
-		// become the leader
-		r.isLeader = true
-		r.votesReceived = 0
-
-		// copy over values from requestVoteEntries to log
-		r.log = append(r.log[:r.preparedIndex+1], r.requestVoteEntries...)
-		r.requestVoteEntries = make([]randomizedpaxosproto.Entry, 0)
-
-		for i := 0; i < r.N ; i++ {
-			r.nextIndex[i] = len(r.log)
-			r.matchIndex[i] = 0
-			r.commitIndex[i] = 0
-		}
-
-		timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
-		r.resetTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
-		// send out replicate entries rpcs
-		r.bcastReplicateEntries()
-	}
-}
-
 func (r *Replica) handleInfoBroadcastReply (rpc *randomizedpaxosproto.InfoBroadcastReply) {
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
@@ -975,709 +577,4 @@ func (r *Replica) handleInfoBroadcastReply (rpc *randomizedpaxosproto.InfoBroadc
 		r.votesReceived = 0
 	}
 	return
-}
-
-func (r *Replica) handleReplicateEntriesReply (rpc *randomizedpaxosproto.ReplicateEntriesReply) {
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-		r.isLeader = false
-		r.votesReceived = 0
-	}
-
-	if (r.isLeader || int(rpc.Term) < r.currentTerm) {
-		// ignore these entries
-		return
-	}
-
-	// currentCommitPoint := r.benOrIndex-1
-	// currentPreparedPoint := r.preparedIndex
-	// newCommitPoint := max(currentCommitPoint, int(rpc.ReplicaBenOrIndex)-1)
-	newPreparedPoint := max(r.preparedIndex, int(rpc.ReplicaPreparedIndex))
-	firstEntryIndex := int(rpc.PrevLogIndex) + 1
-
-	// update log with new entries if they exist
-	for i := r.benOrIndex; i < int(rpc.ReplicaPreparedIndex); i++ {
-		idx := i - firstEntryIndex
-		if i < len(r.log) {
-			if (r.log[i].Term != rpc.ReplicaEntries[idx].Term) {
-				if (r.log[i].BenOrActive) {
-					if !rpc.ReplicaEntries[idx].BenOrActive && i <= newPreparedPoint {
-						// r.requestVoteEntries[i] = rpc.ReplicaEntries[idx]
-						r.log[i] = rpc.ReplicaEntries[idx]
-						continue
-					}
-					// else, use current entry
-				} else if (rpc.ReplicaEntries[idx].BenOrActive) {
-					// use current entry instead
-					continue
-				} else { // neither requestVoteEntries[i] or rpc.ReplicaEntries[idx] is benOrActive
-					// r.requestVoteEntries[idx] = rpc.ReplicaEntries[idx]
-					r.log = append(r.log[:i], rpc.ReplicaEntries[idx:newPreparedPoint+1]...)
-					break
-				}
-			}
-		} else {
-			r.log = append(r.log, rpc.ReplicaEntries[idx:newPreparedPoint+1]...)
-			// r.requestVoteEntries = append(r.requestVoteEntries, rpc.ReplicaEntries[idx])
-		}
-	}
-
-	r.commitIndex[rpc.ReplicaId] = max(r.commitIndex[rpc.ReplicaId], int(rpc.ReplicaBenOrIndex))-1
-	r.matchIndex[rpc.ReplicaId] = max(r.matchIndex[rpc.ReplicaId], int(rpc.ReplicaPreparedIndex))
-
-	if (rpc.Success) {
-		r.nextIndex[rpc.ReplicaId] = r.commitIndex[rpc.ReplicaId] + 1
-	} else {
-		r.nextIndex[rpc.ReplicaId] = int(rpc.RequestedIndex)
-		// TODO: can optimize this out
-	}
-}
-
-func (r *Replica) resendBenOrTimer() {
-	if r.benOrState.benOrStatus == Broadcasting {
-		args := &randomizedpaxosproto.BenOrBroadcast{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration), r.benOrState.benOrBroadcastRequest}
-		for i := 0; i < r.N; i++ {
-			if int32(i) != r.Id {
-				r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
-			}
-		}
-	} else if r.benOrState.benOrStatus == StageOne {
-		foundMajRequest := int32(r.benOrState.benOrVote)
-		majRequest := r.benOrState.benOrMajRequest
-		leaderEntry := benOrUncommittedLogEntry(-1)
-		if r.log[r.benOrIndex].FromLeader {
-			leaderEntry = r.log[r.benOrIndex]
-		}
-		args := &randomizedpaxosproto.BenOrConsensus{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration), int32(r.benOrState.benOrPhase), foundMajRequest, majRequest, leaderEntry, 1}
-		for i := 0; i < r.N; i++ {
-			if int32(i) != r.Id {
-				r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
-			}
-		}
-	} else if r.benOrState.benOrStatus == StageTwo {
-		vote := int32(r.benOrState.benOrVote)
-		majRequest := r.benOrState.benOrMajRequest
-		leaderEntry := benOrUncommittedLogEntry(-1)
-		if r.log[r.benOrIndex].FromLeader {
-			leaderEntry = r.log[r.benOrIndex]
-		}
-		args := &randomizedpaxosproto.BenOrConsensus{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration),
-			int32(r.benOrState.benOrPhase), vote, majRequest, leaderEntry, 2} // last entry represents the phase
-		for i := 0; i < r.N; i++ {
-			if int32(i) != r.Id {
-				r.SendMsg(int32(i), r.benOrConsensusRPC, args)
-			}
-		}
-	}
-}
-
-func (r *Replica) startBenOrPlus () {
-	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
-
-	iteration := r.benOrState.benOrIteration
-
-	r.benOrState = BenOrState{
-		benOrStatus: Broadcasting,
-		benOrPhase: 0,
-		biasedCoin: false,
-		benOrRepliesReceived: 0,
-		benOrIteration: iteration + 1,
-		benOrBroadcastMessages: make([]randomizedpaxosproto.BenOrBroadcast, 0),
-		benOrConsensusMessages: make([]randomizedpaxosproto.BenOrConsensus, 0),
-	}
-	
-	var request randomizedpaxosproto.Entry
-	if (r.log[r.benOrIndex].Term != -1) {
-		request = r.log[r.benOrIndex]
-	} else {
-		request = r.pq.pop()
-	}
-
-	args := &randomizedpaxosproto.BenOrBroadcast{
-		r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(iteration), request}
-	// r.SendMsg(r.Id, r.benOrBroadcastRPC, args)
-	for i := 0; i < r.N; i++ {
-		if int32(i) != r.Id {
-			r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
-		}
-	}
-
-	// received your own message
-	r.benOrState.benOrRepliesReceived++
-	r.benOrState.benOrBroadcastMessages = append(r.benOrState.benOrBroadcastMessages, *args)
-	r.benOrState.benOrBroadcastRequest = request
-}
-
-func (r *Replica) handleBenOrBroadcast (rpc *randomizedpaxosproto.BenOrBroadcast) {
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-
-		r.isLeader = false
-	}
-
-	if (int(rpc.Index) < r.benOrIndex) {
-		args := &randomizedpaxosproto.GetCommittedDataReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.log[rpc.Index:r.benOrIndex+1],
-		}
-		r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
-		return
-	}
-
-	if (r.benOrIndex < int(rpc.Index)) {
-		args := &randomizedpaxosproto.GetCommittedData{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), rpc.Index,
-		}
-		for i := 0; i < r.N; i++ {
-			if int32(i) != r.Id {
-				r.SendMsg(int32(i), r.getCommittedDataRPC, args)
-			}
-		}
-
-		// r.benOrStatus = WaitingToBeUpdated	
-		return 
-	}
-
-	if (r.benOrState.benOrIteration < int(rpc.Iteration)) {
-		r.benOrState.benOrIteration = int(rpc.Iteration)
-
-		r.benOrState.benOrRepliesReceived = 1
-		r.benOrState.benOrBroadcastMessages = make([]randomizedpaxosproto.BenOrBroadcast, 0)
-		r.benOrState.benOrConsensusMessages = make([]randomizedpaxosproto.BenOrConsensus, 0)
-
-		r.pq.push(r.benOrState.benOrBroadcastRequest)
-
-		// if r.benOrStatus != WaitingToBeUpdated {
-			r.benOrState.benOrStatus = Broadcasting
-
-			var request randomizedpaxosproto.Entry
-			if (r.log[r.benOrIndex].Term != -1) {
-				request = r.log[r.benOrIndex]
-			} else {
-				request = r.pq.pop()
-			}
-
-			r.benOrState.benOrBroadcastRequest = request
-
-			args := &randomizedpaxosproto.BenOrBroadcastReply{
-				r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), request,
-			}
-			r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-		// }
-		return
-	}
-
-	if (r.benOrState.benOrIteration > int(rpc.Iteration)) {
-		args := &randomizedpaxosproto.BenOrBroadcastReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
-		}
-		r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-		return
-	}
-
-	// r.benOrIteration == int(rpc.Iteration) and r.benOrIndex == int(rpc.Index)
-	notReceivedYet := true
-	for _, msg := range r.benOrState.benOrBroadcastMessages {
-		if msg.SenderId == rpc.SenderId {
-			notReceivedYet = false
-			break
-		}
-	}
-
-	if r.benOrState.benOrStatus == Broadcasting && r.benOrState.benOrRepliesReceived < r.N/2 && notReceivedYet {
-		r.benOrState.benOrRepliesReceived++
-		r.benOrState.benOrBroadcastMessages = append(r.benOrState.benOrBroadcastMessages, *rpc)
-
-		if r.benOrState.benOrRepliesReceived >= r.N/2 {
-			// move past broadcasting stage
-			r.startBenOrConsensusStage1(true)
-		}
-	}
-
-	args := &randomizedpaxosproto.BenOrBroadcastReply{
-		r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
-	}
-	r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-}
-
-func (r *Replica) handleBenOrBroadcastReply(rpc *randomizedpaxosproto.BenOrBroadcastReply) {
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-
-		r.isLeader = false
-	}
-
-	if (int(rpc.Index) < r.benOrIndex) {
-		args := &randomizedpaxosproto.GetCommittedDataReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.log[rpc.Index:r.benOrIndex+1],
-		}
-		r.SendMsg(rpc.ReplicaId, r.getCommittedDataReplyRPC, args)
-		return
-	}
-
-	if (r.benOrIndex < int(rpc.Index)) {
-		args := &randomizedpaxosproto.GetCommittedData{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), rpc.Index,
-		}
-		for i := 0; i < r.N; i++ {
-			if int32(i) != r.Id {
-				r.SendMsg(int32(i), r.getCommittedDataRPC, args)
-			}
-		}
-
-		// r.benOrStatus = WaitingToBeUpdated	
-		return 
-	}
-
-	if (r.benOrState.benOrIteration < int(rpc.Iteration)) {
-		r.benOrState.benOrIteration = int(rpc.Iteration)
-
-		r.benOrState.benOrRepliesReceived = 1
-		r.benOrState.benOrBroadcastMessages = make([]randomizedpaxosproto.BenOrBroadcast, 0)
-		r.benOrState.benOrConsensusMessages = make([]randomizedpaxosproto.BenOrConsensus, 0)
-
-		r.pq.push(r.benOrState.benOrBroadcastRequest)
-
-		// if r.benOrStatus != WaitingToBeUpdated {
-			r.benOrState.benOrStatus = Broadcasting
-
-			var request randomizedpaxosproto.Entry
-			if (r.log[r.benOrIndex].Term != -1) {
-				request = r.log[r.benOrIndex]
-			} else {
-				request = r.pq.pop()
-			}
-
-			r.benOrState.benOrBroadcastRequest = request
-
-			// args := &randomizedpaxosproto.BenOrBroadcastReply{
-			// 	r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), request,
-			// }
-			// r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-		// }
-		return
-	}
-
-	if (r.benOrState.benOrIteration > int(rpc.Iteration)) {
-		// args := &randomizedpaxosproto.BenOrBroadcastReply{
-		// 	r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrBroadcastRequest,
-		// }
-		// r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-		return
-	}
-
-	// r.benOrIteration == int(rpc.Iteration) and r.benOrIndex == int(rpc.Index)
-	notReceivedYet := true
-	for _, msg := range r.benOrState.benOrBroadcastMessages {
-		if msg.SenderId == rpc.ReplicaId {
-			notReceivedYet = false
-			break
-		}
-	}
-
-	if r.benOrState.benOrStatus == Broadcasting && r.benOrState.benOrRepliesReceived < r.N/2 && notReceivedYet{
-		r.benOrState.benOrRepliesReceived++
-		r.benOrState.benOrBroadcastMessages = append(r.benOrState.benOrBroadcastMessages, *rpc)
-
-		if r.benOrState.benOrRepliesReceived >= r.N/2 {
-			// move past broadcasting stage
-			r.startBenOrConsensusStage1(true)
-		}
-	}
-
-	// args := &randomizedpaxosproto.BenOrBroadcastReply{
-	// 	r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrBroadcastRequest,
-	// }
-	// r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-}
-
-// only called if actually need to run benOr at this index
-func (r *Replica) startBenOrConsensusStage1(initialize bool) {
-	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
-
-	var foundMajRequest int32;
-	var majRequest randomizedpaxosproto.Entry;
-
-	if initialize {
-		r.benOrState.benOrPhase++
-		r.benOrState.benOrStatus = StageOne
-		r.benOrState.benOrRepliesReceived = 0
-
-		var n int = len(r.benOrState.benOrBroadcastMessages)
-
-		msgs := r.benOrState.benOrBroadcastMessages
-
-		sort.Slice(msgs, func(i, j int) bool {
-			if msgs[i].Index != msgs[j].Index {
-				return msgs[i].Index < msgs[j].Index
-			}
-			if msgs[i].ClientReq.Timestamp != msgs[j].ClientReq.Timestamp {
-				return msgs[i].ClientReq.Timestamp < msgs[j].ClientReq.Timestamp
-			}
-			return msgs[i].ClientReq.SenderId < msgs[j].ClientReq.SenderId
-		})
-
-		foundMajRequest = int32(Vote0)
-		majRequest = benOrUncommittedLogEntry(-1)
-		curRequest := benOrUncommittedLogEntry(-1)
-
-		counter := 0
-		timestamp := int64(-1)
-		index := int32(-1)
-		senderId := int32(-1)
-
-		for i := 0; i < n; i++ {
-			if msgs[i].Index == index && msgs[i].ClientReq.Timestamp == timestamp && 
-						msgs[i].ClientReq.SenderId == senderId {
-				counter++
-				if msgs[i].ClientReq.Term > curRequest.Term {
-					curRequest = msgs[i].ClientReq
-				}
-			} else {
-				counter = 1
-				index = msgs[i].Index
-				timestamp = msgs[i].ClientReq.Timestamp
-				senderId = msgs[i].ClientReq.SenderId
-				curRequest = msgs[i].ClientReq
-			}
-			
-			if counter >= r.N/2 {
-				foundMajRequest = int32(Vote1)
-				majRequest = curRequest
-				break
-			}
-			// if i + r.N/2 < n && msgs[i].Index == msgs[i+r.N/2].Index &&
-			// msgs[i].ClientReq.Timestamp == msgs[i+r.N/2].ClientReq.Timestamp && 
-			// msgs[i].ClientReq.SenderId == msgs[i+r.N/2].ClientReq.SenderId {
-				
-			// 	majRequest = msgs[i].ClientReq
-			// 	foundMajRequest = int32(Vote1)
-			// 	break
-			// }
-		}
-
-		r.benOrState.benOrVote = int(foundMajRequest)
-		r.benOrState.benOrMajRequest = majRequest
-	} else {
-		foundMajRequest = int32(r.benOrState.benOrVote)
-		majRequest = r.benOrState.benOrMajRequest
-	}
-
-	leaderEntry := benOrUncommittedLogEntry(-1)
-	if r.log[r.benOrIndex].FromLeader {
-		leaderEntry = r.log[r.benOrIndex]
-	}
-
-	args := &randomizedpaxosproto.BenOrConsensus{
-		r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration), 
-		int32(r.benOrState.benOrPhase), foundMajRequest, majRequest, leaderEntry, 1} // last entry represents the phase
-	// r.SendMsg(r.Id, r.benOrBroadcastRPC, args)
-	for i := 0; i < r.N; i++ {
-		if int32(i) != r.Id {
-			r.SendMsg(int32(i), r.benOrConsensusRPC, args)
-		}
-	}
-
-	// received your own message
-	r.benOrState.benOrRepliesReceived++
-	r.benOrState.benOrConsensusMessages = append(r.benOrState.benOrConsensusMessages, *args)
-}
-
-func (r *Replica) startBenOrConsensusStage2(initialize bool) {
-	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
-
-	var vote int32
-	var majRequest randomizedpaxosproto.Entry;
-
-	if initialize {
-		r.benOrState.benOrPhase++
-		r.benOrState.benOrStatus = StageOne
-		r.benOrState.benOrRepliesReceived = 0
-
-		// var n int = len(r.benOrState.benOrConsensusMessages)
-
-		msgs := r.benOrState.benOrConsensusMessages
-	
-		voteCount := [2]int{0, 0}
-		for _, msg := range msgs {
-			voteCount[msg.Vote]++
-		}
-
-		var vote int32;
-
-		if voteCount[0] > r.N/2 {
-			vote = int32(Vote0)
-		} else if voteCount[1] > r.N/2 {
-			vote = int32(Vote1)
-		} else {
-			vote = int32(VoteQuestionMark)
-		}
-
-		r.benOrState.benOrVote = int(vote)
-		// r.benOrState.benOrMajRequest = majRequest
-	}
-
-	vote = int32(r.benOrState.benOrVote)
-	majRequest = r.benOrState.benOrMajRequest
-
-	leaderEntry := benOrUncommittedLogEntry(-1)
-	if r.log[r.benOrIndex].FromLeader {
-		leaderEntry = r.log[r.benOrIndex]
-	}
-
-	args := &randomizedpaxosproto.BenOrConsensus{
-		r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration),
-		int32(r.benOrState.benOrPhase), vote, majRequest, leaderEntry, 2} // last entry represents the phase
-
-	for i := 0; i < r.N; i++ {
-		if int32(i) != r.Id {
-			r.SendMsg(int32(i), r.benOrConsensusRPC, args)
-		}
-	}
-
-	// received your own message
-	r.benOrState.benOrRepliesReceived++
-	r.benOrState.benOrConsensusMessages = append(r.benOrState.benOrConsensusMessages, *args)
-}
-
-func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus) {
-	if (int(rpc.Term) > r.currentTerm) { // update term but don't return
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-
-		r.isLeader = false
-	}
-
-	if (int(rpc.Index) < r.benOrIndex) {
-		args := &randomizedpaxosproto.GetCommittedDataReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.log[rpc.Index:r.benOrIndex+1],
-		}
-		r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
-		return
-	}
-
-	if (r.benOrIndex < int(rpc.Index)) {
-		args := &randomizedpaxosproto.GetCommittedData{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), rpc.Index,
-		}
-
-		// request data from other replicas
-		for i := 0; i < r.N; i++ {
-			if int32(i) != r.Id {
-				r.SendMsg(int32(i), r.getCommittedDataRPC, args)
-			}
-		}
-
-		// r.benOrStatus = WaitingToBeUpdated	
-		return 
-	}
-
-	if (r.benOrState.benOrStatus == Stopped) {
-		return
-	}
-
-	if (r.benOrState.benOrIteration < int(rpc.Iteration)) {
-		r.benOrState.benOrIteration = int(rpc.Iteration)
-
-		r.benOrState.benOrRepliesReceived = 1
-		r.benOrState.benOrBroadcastMessages = make([]randomizedpaxosproto.BenOrBroadcast, 0)
-		r.benOrState.benOrConsensusMessages = make([]randomizedpaxosproto.BenOrConsensus, 0)
-
-		// r.pq.push(r.benOrBroadcastRequest)
-
-		r.benOrState.benOrStatus = Broadcasting
-
-		var request randomizedpaxosproto.Entry
-		if (r.log[r.benOrIndex].Term != -1) {
-			request = r.log[r.benOrIndex]
-		} else {
-			request = r.pq.pop()
-		}
-
-		r.benOrState.benOrBroadcastRequest = request
-
-		args := &randomizedpaxosproto.BenOrBroadcastReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), request,
-		}
-		r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-		return
-	}
-
-	if (r.benOrState.benOrIteration > int(rpc.Iteration)) {
-		args := &randomizedpaxosproto.BenOrBroadcastReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
-		}
-		r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-		return
-	}
-
-	// r.benOrIteration == int(rpc.Iteration) and r.benOrIndex == int(rpc.Index)
-	
-	// TODO: check to make sure it's the same phase
-	if (r.benOrState.benOrPhase < int(rpc.Phase)) {
-		r.benOrState.benOrPhase = int(rpc.Phase)
-		r.benOrState.benOrRepliesReceived = 2
-
-		r.benOrState.benOrConsensusMessages = append(r.benOrState.benOrConsensusMessages, *rpc, *rpc)
-		r.benOrState.benOrVote = int(rpc.Vote)
-		r.benOrState.benOrMajRequest = rpc.MajRequest
-
-		if (r.benOrState.benOrPhase == 1) {
-			r.startBenOrConsensusStage1(false)
-		} else if (r.benOrState.benOrPhase == 2) {
-			r.startBenOrConsensusStage2(false)
-		}
-		return
-	}
-
-	if (r.benOrState.benOrPhase > int(rpc.Phase)) {
-		args := &randomizedpaxosproto.BenOrConsensusReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrState.benOrIteration), 
-			int32(r.benOrState.benOrPhase), int32(r.benOrState.benOrVote), r.benOrState.benOrMajRequest, 
-			r.log[r.benOrIndex], int32(r.benOrState.benOrStatus),
-		}
-		r.SendMsg(rpc.SenderId, r.benOrConsensusReplyRPC, args)
-		return
-	}
-
-	// TODO: if same phase, then handle consensus request
-
-	notReceivedYet := true
-	for _, msg := range r.benOrState.benOrConsensusMessages {
-		if msg.SenderId == rpc.SenderId {
-			notReceivedYet = false
-			break
-		}
-	}
-
-	if r.benOrState.benOrStatus == StageOne && r.benOrState.benOrRepliesReceived < r.N/2 && notReceivedYet {
-		r.benOrState.benOrRepliesReceived++
-		r.benOrState.benOrConsensusMessages = append(r.benOrState.benOrConsensusMessages, *rpc)
-
-		if r.benOrState.benOrRepliesReceived >= r.N/2 {
-			// move past broadcasting stage
-			r.startBenOrConsensusStage2(true)
-		}
-	}
-
-	if r.benOrState.benOrStatus == StageTwo && r.benOrState.benOrRepliesReceived < r.N/2 && notReceivedYet {
-		r.benOrState.benOrRepliesReceived++
-		r.benOrState.benOrConsensusMessages = append(r.benOrState.benOrConsensusMessages, *rpc)
-
-		if r.benOrState.benOrRepliesReceived >= r.N/2 {
-			// move past broadcasting stage
-			r.handleBenOrStageEnd()
-		}
-	}
-
-	args := &randomizedpaxosproto.BenOrBroadcastReply{
-		r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
-	}
-	r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
-}
-
-func (r *Replica) handleBenOrStageEnd() {
-	var n int = len(r.benOrState.benOrConsensusMessages)
-
-	msgs := r.benOrState.benOrConsensusMessages
-
-	numVotes := make([]int, 3) // values initialized to 0
-
-	for i := 0; i < n; i++ {
-		numVotes[msgs[i].Vote]++
-	}
-	
-	if numVotes[Vote1] > r.N/2 {
-		// commit entry
-		r.benOrState.benOrMajRequest.BenOrActive = false
-		r.log[r.benOrIndex] = r.benOrState.benOrMajRequest
-
-		r.benOrState = BenOrState{
-			benOrStatus: Stopped,
-			benOrIteration: 0,
-			benOrPhase: 0,
-			benOrVote: 0,
-			benOrMajRequest: benOrUncommittedLogEntry(-1),
-			benOrRepliesReceived: 0,
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
-			benOrBroadcastMessages: make([]randomizedpaxosproto.BenOrBroadcast, 0),
-			benOrConsensusMessages: make([]randomizedpaxosproto.BenOrConsensus, 0),
-			biasedCoin: false,
-		}
-
-		r.preparedIndex++
-		r.benOrIndex = r.preparedIndex
-
-		// TODO: close retry channel
-		return
-	} else if numVotes[Vote0] > r.N/2 {
-		// TODO: add a check to see if this is already a leader entry?
-		r.pq.push(r.benOrState.benOrBroadcastRequest)
-
-		r.benOrState = BenOrState{
-			benOrStatus: Stopped,
-			benOrIteration: r.benOrState.benOrIteration+1,
-			benOrPhase: 0,
-			benOrVote: 0,
-			benOrMajRequest: benOrUncommittedLogEntry(-1),
-			benOrRepliesReceived: 0,
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
-			benOrBroadcastMessages: make([]randomizedpaxosproto.BenOrBroadcast, 0),
-			benOrConsensusMessages: make([]randomizedpaxosproto.BenOrConsensus, 0),
-			biasedCoin: false,
-		}
-		return
-	} else { // at least one question mark
-		r.benOrState.benOrPhase++
-
-		var initialVote int
-		if r.benOrState.biasedCoin {
-			initialVote = 0
-		} else {
-			initialVote = rand.Intn(2)
-		}
-
-		r.benOrState = BenOrState{
-			benOrStatus: StageOne,
-			benOrIteration: r.benOrState.benOrIteration+1,
-			benOrPhase: 0,
-			benOrVote: initialVote,
-			benOrMajRequest: r.benOrState.benOrMajRequest,
-			benOrRepliesReceived: 0,
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
-			benOrBroadcastMessages: make([]randomizedpaxosproto.BenOrBroadcast, 0),
-			benOrConsensusMessages: make([]randomizedpaxosproto.BenOrConsensus, 0),
-			biasedCoin: r.benOrState.biasedCoin,
-		}
-
-		r.startBenOrConsensusStage1(false)
-	}
 }
