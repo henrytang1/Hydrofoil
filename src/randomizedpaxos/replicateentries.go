@@ -226,9 +226,9 @@ func (r *Replica) bcastReplicateEntries() {
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
 			args := &randomizedpaxosproto.ReplicateEntries{
-				r.Id, int32(r.currentTerm),
-				int32(r.nextIndex[i]-1), int32(r.log[r.nextIndex[i]-1].Term),
-				r.log[r.nextIndex[i]:], int32(r.benOrIndex), int32(r.preparedIndex)}
+				SenderId: r.Id, Term: int32(r.currentTerm),
+				PrevLogIndex: int32(r.nextIndex[i]-1), PrevLogTerm: int32(r.log[r.nextIndex[i]-1].Term),
+				Entries: r.log[r.nextIndex[i]:], LeaderBenOrIndex: int32(r.benOrIndex), LeaderPreparedIndex: int32(r.preparedIndex)}
 
 			r.SendMsg(int32(i), r.replicateEntriesRPC, args)
 		}

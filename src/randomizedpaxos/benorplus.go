@@ -79,7 +79,7 @@ func (r *Replica) startBenOrPlus () {
 	}
 
 	args := &randomizedpaxosproto.BenOrBroadcast{
-		r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(iteration), request}
+		SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(iteration), ClientReq: request}
 	// r.SendMsg(r.Id, r.benOrBroadcastRPC, args)
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
@@ -109,7 +109,7 @@ func (r *Replica) handleBenOrBroadcast (rpc *randomizedpaxosproto.BenOrBroadcast
 
 	if (int(rpc.Index) < r.benOrIndex) {
 		args := &randomizedpaxosproto.GetCommittedDataReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.log[rpc.Index:r.benOrIndex+1],
+			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: rpc.Index, EndIndex: int32(r.benOrIndex), Entries: r.log[rpc.Index:r.benOrIndex+1],
 		}
 		r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
 		return
@@ -117,7 +117,7 @@ func (r *Replica) handleBenOrBroadcast (rpc *randomizedpaxosproto.BenOrBroadcast
 
 	if (r.benOrIndex < int(rpc.Index)) {
 		args := &randomizedpaxosproto.GetCommittedData{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), rpc.Index,
+			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: int32(r.benOrIndex), EndIndex: rpc.Index,
 		}
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
@@ -151,7 +151,7 @@ func (r *Replica) handleBenOrBroadcast (rpc *randomizedpaxosproto.BenOrBroadcast
 			r.benOrState.benOrBroadcastRequest = request
 
 			args := &randomizedpaxosproto.BenOrBroadcastReply{
-				r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), request,
+				ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrIndex), ClientReq: request,
 			}
 			r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
 		// }
@@ -160,7 +160,7 @@ func (r *Replica) handleBenOrBroadcast (rpc *randomizedpaxosproto.BenOrBroadcast
 
 	if (r.benOrState.benOrIteration > int(rpc.Iteration)) {
 		args := &randomizedpaxosproto.BenOrBroadcastReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
+			ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 		}
 		r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
 		return
@@ -186,7 +186,7 @@ func (r *Replica) handleBenOrBroadcast (rpc *randomizedpaxosproto.BenOrBroadcast
 	}
 
 	args := &randomizedpaxosproto.BenOrBroadcastReply{
-		r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
+		ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 	}
 	r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
 }
@@ -207,7 +207,7 @@ func (r *Replica) handleBenOrBroadcastReply(rpc *randomizedpaxosproto.BenOrBroad
 
 	if (int(rpc.Index) < r.benOrIndex) {
 		args := &randomizedpaxosproto.GetCommittedDataReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.log[rpc.Index:r.benOrIndex+1],
+			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: rpc.Index, EndIndex: int32(r.benOrIndex), Entries: r.log[rpc.Index:r.benOrIndex+1],
 		}
 		r.SendMsg(rpc.ReplicaId, r.getCommittedDataReplyRPC, args)
 		return
@@ -215,7 +215,7 @@ func (r *Replica) handleBenOrBroadcastReply(rpc *randomizedpaxosproto.BenOrBroad
 
 	if (r.benOrIndex < int(rpc.Index)) {
 		args := &randomizedpaxosproto.GetCommittedData{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), rpc.Index,
+			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: int32(r.benOrIndex), EndIndex: rpc.Index,
 		}
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
@@ -370,8 +370,8 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 	}
 
 	args := &randomizedpaxosproto.BenOrConsensus{
-		r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration), 
-		int32(r.benOrState.benOrPhase), foundMajRequest, majRequest, leaderEntry, 1} // last entry represents the phase
+		SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), 
+		Phase: int32(r.benOrState.benOrPhase), Vote: foundMajRequest, MajRequest: majRequest, LeaderRequest: leaderEntry, EntryType: 1} // last entry represents the phase
 	// r.SendMsg(r.Id, r.benOrBroadcastRPC, args)
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
@@ -428,8 +428,8 @@ func (r *Replica) startBenOrConsensusStage2(initialize bool) {
 	}
 
 	args := &randomizedpaxosproto.BenOrConsensus{
-		r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration),
-		int32(r.benOrState.benOrPhase), vote, majRequest, leaderEntry, 2} // last entry represents the phase
+		SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration),
+		Phase: int32(r.benOrState.benOrPhase), Vote: vote, MajRequest: majRequest, LeaderRequest: leaderEntry, EntryType: 2} // last entry represents the phase
 
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
@@ -457,7 +457,7 @@ func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus
 
 	if (int(rpc.Index) < r.benOrIndex) {
 		args := &randomizedpaxosproto.GetCommittedDataReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.log[rpc.Index:r.benOrIndex+1],
+			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: rpc.Index, EndIndex: int32(r.benOrIndex), Entries: r.log[rpc.Index:r.benOrIndex+1],
 		}
 		r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
 		return
@@ -465,7 +465,7 @@ func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus
 
 	if (r.benOrIndex < int(rpc.Index)) {
 		args := &randomizedpaxosproto.GetCommittedData{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), rpc.Index,
+			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: int32(r.benOrIndex), EndIndex: rpc.Index,
 		}
 
 		// request data from other replicas
@@ -504,7 +504,7 @@ func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus
 		r.benOrState.benOrBroadcastRequest = request
 
 		args := &randomizedpaxosproto.BenOrBroadcastReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), request,
+			ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrIndex), ClientReq: request,
 		}
 		r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
 		return
@@ -512,7 +512,7 @@ func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus
 
 	if (r.benOrState.benOrIteration > int(rpc.Iteration)) {
 		args := &randomizedpaxosproto.BenOrBroadcastReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
+			ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 		}
 		r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
 		return
@@ -539,9 +539,9 @@ func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus
 
 	if (r.benOrState.benOrPhase > int(rpc.Phase)) {
 		args := &randomizedpaxosproto.BenOrConsensusReply{
-			r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrState.benOrIteration), 
-			int32(r.benOrState.benOrPhase), int32(r.benOrState.benOrVote), r.benOrState.benOrMajRequest, 
-			r.log[r.benOrIndex], int32(r.benOrState.benOrStatus),
+			ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrState.benOrIteration), 
+			Phase: int32(r.benOrState.benOrPhase), Vote: int32(r.benOrState.benOrVote), MajRequest: r.benOrState.benOrMajRequest, 
+			LeaderRequest: r.log[r.benOrIndex], EntryType: int32(r.benOrState.benOrStatus),
 		}
 		r.SendMsg(rpc.SenderId, r.benOrConsensusReplyRPC, args)
 		return
@@ -578,7 +578,7 @@ func (r *Replica) handleBenOrConsensus (rpc *randomizedpaxosproto.BenOrConsensus
 	}
 
 	args := &randomizedpaxosproto.BenOrBroadcastReply{
-		r.Id, int32(r.currentTerm), rpc.Index, int32(r.benOrIndex), r.benOrState.benOrBroadcastRequest,
+		ReplicaId: r.Id, Term: int32(r.currentTerm), Index: rpc.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 	}
 	r.SendMsg(rpc.SenderId, r.benOrBroadcastReplyRPC, args)
 }
@@ -671,7 +671,7 @@ func (r *Replica) resendBenOrTimer() {
 
 	if r.benOrState.benOrStatus == Broadcasting {
 		args := &randomizedpaxosproto.BenOrBroadcast{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration), r.benOrState.benOrBroadcastRequest}
+			SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), ClientReq: r.benOrState.benOrBroadcastRequest}
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
 				r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
@@ -685,7 +685,7 @@ func (r *Replica) resendBenOrTimer() {
 			leaderEntry = r.log[r.benOrIndex]
 		}
 		args := &randomizedpaxosproto.BenOrConsensus{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration), int32(r.benOrState.benOrPhase), foundMajRequest, majRequest, leaderEntry, 1}
+			SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), Phase: int32(r.benOrState.benOrPhase), Vote: foundMajRequest, MajRequest: majRequest, LeaderRequest: leaderEntry, EntryType: 1}
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
 				r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
@@ -699,8 +699,8 @@ func (r *Replica) resendBenOrTimer() {
 			leaderEntry = r.log[r.benOrIndex]
 		}
 		args := &randomizedpaxosproto.BenOrConsensus{
-			r.Id, int32(r.currentTerm), int32(r.benOrIndex), int32(r.benOrState.benOrIteration),
-			int32(r.benOrState.benOrPhase), vote, majRequest, leaderEntry, 2} // last entry represents the phase
+			SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration),
+			Phase: int32(r.benOrState.benOrPhase), Vote: vote, MajRequest: majRequest, LeaderRequest: leaderEntry, EntryType: 2} // last entry represents the phase
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
 				r.SendMsg(int32(i), r.benOrConsensusRPC, args)

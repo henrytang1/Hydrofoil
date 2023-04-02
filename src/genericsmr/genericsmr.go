@@ -2,7 +2,6 @@ package genericsmr
 
 import (
 	"bufio"
-	"bytes"
 	"dlog"
 	"encoding/binary"
 	"fastrpc"
@@ -82,6 +81,14 @@ type Replica struct {
 	RegisterClientIdChan chan *Client // channel for registering client id
 
 	GetViewChan chan *GetView
+
+	IsProduction bool
+	IsConnected  IsConnectedStatus // for testing purposes
+}
+
+type IsConnectedStatus struct {
+	Mu 			sync.Mutex
+	Connected	map[int]bool
 }
 
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool) *Replica {
@@ -111,6 +118,14 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		make(chan bool, 1200),
 		make(chan *Client, CHAN_BUFFER_SIZE),
 		make(chan *GetView, CHAN_BUFFER_SIZE),
+		true,
+		IsConnectedStatus{Connected: make(map[int]bool)},
+	}
+
+	for i := 0; i < r.N; i++ {
+		r.IsConnected.Mu.Lock()
+		r.IsConnected.Connected[i] = true
+		r.IsConnected.Mu.Unlock()
 	}
 
 	var err error
@@ -141,50 +156,70 @@ func (r *Replica) BeTheLeader2(args *genericsmrproto.BeTheLeaderArgs, reply *gen
 	return nil
 }
 
+// type SimConn struct {
+//     *io.PipeReader
+// 	*io.PipeWriter
+// 	mu            	sync.Mutex
+// 	connected 		bool // connected bool
+// }
+
+// func NewSimConn(pr *io.PipeReader, pw *io.PipeWriter) *SimConn{
+// 	return &SimConn{
+// 		PipeReader: pr,
+// 		PipeWriter: pw,
+// 		connected: true,
+// 	}
+// }
+
+// func (c *SimConn) Read(b []byte) (n int, err error) {
+// 	// c.mu.Lock()
+// 	// defer c.mu.Unlock()
+// 	return c.PipeReader.Read(b)
+// }
+
+// func (c *SimConn) Write(b []byte) (n int, err error) {
+// 	c.mu.Lock()
+// 	// defer c.mu.Unlock()
+// 	fmt.Println("Done")
+// 	if (!c.connected) {
+// 		c.mu.Unlock()
+// 		return 0, nil
+// 	}
+// 	c.mu.Unlock()
+// 	n, err = c.PipeWriter.Write(b)
+// 	return n, err
+// }
+
+// func (c *SimConn) Disconnect() {
+// 	c.mu.Lock()
+// 	defer c.mu.Unlock()
+// 	c.connected = false
+// }
+
+// func (c *SimConn) Connect() {
+// 	c.mu.Lock()
+// 	defer c.mu.Unlock()
+// 	c.connected = true
+// }
+
 type SimConn struct {
-    *bytes.Buffer
-	mu            	sync.Mutex
-	connected 		bool // connected bool
+    *io.PipeReader
+	*io.PipeWriter
 }
 
-func NewSimConn() *SimConn{
+func NewSimConn(pr *io.PipeReader, pw *io.PipeWriter) *SimConn{
 	return &SimConn{
-		Buffer: new(bytes.Buffer),
-		connected: true,
+		PipeReader: pr,
+		PipeWriter: pw,
 	}
 }
 
-func (c *SimConn) Read(b []byte) (n int, err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Buffer.Read(b)
-}
+func (r *Replica) ConnectToPeersSim(serverId int, simConn *SimConn) {
+	// a, b := io.Pipe()
 
-func (c *SimConn) Write(b []byte) (n int, err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if (!c.connected) {
-		return 0, nil
-	}
-	return c.Buffer.Write(b)
-}
-
-func (c *SimConn) Disconnect() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.connected = false
-}
-
-func (c *SimConn) Connect() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.connected = true
-}
-
-func (r *Replica) ConnectToPeersSim(serverId int, simConnIn *SimConn, simConnOut *SimConn) {
 	r.Alive[serverId] = true
-	r.PeerReaders[serverId] = bufio.NewReader(simConnIn)
-	r.PeerWriters[serverId] = bufio.NewWriter(simConnOut)
+	r.PeerReaders[serverId] = bufio.NewReader(simConn)
+	r.PeerWriters[serverId] = bufio.NewWriter(simConn)
 }
 
 func (r *Replica) ConnectListenToPeers() {
@@ -373,14 +408,27 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 
 		// 	}
 		// }
+		fmt.Println("Replica", r.Id, "is waiting for message from replica", rid)
 
+		// if !r.IsProduction {
+		// 	for _, err := reader.Peek(1); err != nil; _, err = reader.Peek(1) {
+		// 		time.Sleep(10 * time.Millisecond)
+		// 	}
+		// }
 		if msgType, err = reader.ReadByte(); err != nil {
 			break
 		}
+		// fmt.Println(r.Id, "finished1", msgType)
 
+		// fmt.Println("HUH")
 		switch uint8(msgType) {
 
 		case genericsmrproto.GENERIC_SMR_BEACON:
+			// if !r.IsProduction {
+			// 	for _, err := reader.Peek(1); err != nil; _, err = reader.Peek(1) {
+			// 		time.Sleep(10 * time.Millisecond)
+			// 	}
+			// }
 			if err = gbeacon.Unmarshal(reader); err != nil {
 				break
 			}
@@ -389,6 +437,11 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 			break
 
 		case genericsmrproto.GENERIC_SMR_BEACON_REPLY:
+			// if !r.IsProduction {
+			// 	for _, err := reader.Peek(1); err != nil; _, err = reader.Peek(1) {
+			// 		time.Sleep(10 * time.Millisecond)
+			// 	}
+			// }
 			if err = gbeaconReply.Unmarshal(reader); err != nil {
 				break
 			}
@@ -399,11 +452,40 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 
 		default:
 			// NOTE: sends value here
+			fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType)
+
+			// if msgType, err = reader.ReadByte(); err != nil {
+			// 	break
+			// }
+			// fmt.Println(r.Id, "finished2222", msgType)
+
+			// fmt.Println("umm2")
+			// buf := make([]byte, 1024)
+			// var n int
+			// if n, err = reader.Read(buf); err != nil {
+			// 	break
+			// }
+			// fmt.Println("WHATTT", string(buf[:n]))
+
 			if rpair, present := r.rpcTable[msgType]; present {
 				obj := rpair.Obj.New()
+				// if !r.IsProduction {
+				// 	for _, err := reader.Peek(1); err != nil; _, err = reader.Peek(1) {
+				// 		time.Sleep(10 * time.Millisecond)
+				// 	}
+				// }
+
+				// fmt.Println("umm2")
+				// buf := make([]byte, 1024)
+				// var n int
+				// if n, err = reader.Read(buf); err != nil {
+				// 	break
+				// }
+				// fmt.Println("WHATTT", string(buf[:n]))
 				if err = obj.Unmarshal(reader); err != nil {
 					break
 				}
+				fmt.Println("wut", obj)
 				rpair.Chan <- obj
 			} else {
 				log.Println("Error: received unknown message type")
@@ -550,10 +632,14 @@ func (r *Replica) RegisterRPC(msgObj fastrpc.Serializable, notify chan fastrpc.S
 }
 
 func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
+	if (!r.IsProduction && !r.IsConnected.Connected[int(peerId)]) {
+		return
+	}
 	w := r.PeerWriters[peerId]
 	w.WriteByte(code)
 	msg.Marshal(w)
 	w.Flush()
+	fmt.Println("SendMsg", peerId, code)
 }
 
 func (r *Replica) SendMsgNoFlush(peerId int32, code uint8, msg fastrpc.Serializable) {

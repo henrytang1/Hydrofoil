@@ -59,7 +59,6 @@ type RPCCounter struct {
 type Replica struct {
 	*genericsmr.Replica // extends a generic Paxos replica
 
-	isProduction 					bool
 	replicateEntriesChan         	chan fastrpc.Serializable
 	replicateEntriesReplyChan		chan fastrpc.Serializable
 	requestVoteChan		          	chan fastrpc.Serializable
@@ -176,7 +175,6 @@ func (r *Replica) sync() {
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
 	r := &Replica{
 		Replica: genericsmr.NewReplica(id, peerAddrList, thrifty, exec, dreply),
-		isProduction: isProduction,
 		replicateEntriesChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		replicateEntriesReplyChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		requestVoteChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
@@ -249,6 +247,8 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		benOrResendTimer: nil,
 	}
 
+	r.IsProduction = isProduction
+
 	r.Durable = durable
 	r.entries[0] = Entry{
 		Data: state.Command{},
@@ -320,7 +320,7 @@ func (r *Replica) clock() {
 /* Main event processing loop */
 func (r *Replica) run() {
 
-	if (r.isProduction) { 
+	if (r.IsProduction) { 
 		r.ConnectToPeers()
 
 		dlog.Println("Waiting for client connections")
@@ -368,10 +368,10 @@ func (r *Replica) run() {
 				if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
 					val := r.log[i].Data.Execute(r.State)
 					propreply := &genericsmrproto.ProposeReplyTS{
-						TRUE,
-						r.log[i].Data.OpId,
-						val,
-						r.log[i].Timestamp} // TODO: check if timestamp is correct
+						OK: TRUE,
+						CommandId: r.log[i].Data.OpId,
+						Value: val,
+						Timestamp: r.log[i].Timestamp} // TODO: check if timestamp is correct
 					r.ReplyProposeTS(propreply, writer)
 				}
 			}
@@ -383,6 +383,7 @@ func (r *Replica) run() {
 		select {
 			case client := <-r.RegisterClientIdChan:
 				r.registerClient(client.ClientId, client.Reply)
+				break
 
 			case <-clockChan:
 				//activate the new proposals channel
@@ -514,7 +515,7 @@ func (r *Replica) bcastInfoBroadcast(clientReq Entry) {
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
 			args := &randomizedpaxosproto.InfoBroadcast{
-				r.Id, int32(r.currentTerm), clientReq}
+				SenderId: r.Id, Term: int32(r.currentTerm), ClientReq: clientReq}
 
 			r.SendMsg(int32(i), r.infoBroadcastRPC, args)
 		}
@@ -550,7 +551,7 @@ func (r *Replica) handleInfoBroadcast(rpc *randomizedpaxosproto.InfoBroadcast) {
 	}
 
 	args := &randomizedpaxosproto.InfoBroadcastReply{
-		r.Id, int32(r.currentTerm)}
+		ReplicaId: r.Id, Term: int32(r.currentTerm)}
 	r.SendMsg(rpc.SenderId, r.infoBroadcastRPC, args)
 
 	if r.isLeader {

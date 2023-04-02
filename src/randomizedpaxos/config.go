@@ -2,6 +2,7 @@ package randomizedpaxos
 
 import (
 	"genericsmr"
+	"io"
 	"runtime"
 	"sync"
 	"testing"
@@ -12,12 +13,27 @@ type network struct {
 	n		  int
 }
 
-func (net *network) Connect(i, j int) {
-	net.conn[i][j].Connect()
+// func (net *network) Connect(i, j int) {
+// 	net.conn[i][j].Connect()
+// 	net.conn[j][i].Connect()
+// }
+
+func (cfg *config) Connect(i, j int) {
+	cfg.replicas[i].IsConnected.Mu.Lock()
+	cfg.replicas[j].IsConnected.Mu.Lock()
+	cfg.replicas[i].IsConnected.Connected[j] = true
+	cfg.replicas[j].IsConnected.Connected[i] = true
+	cfg.replicas[i].IsConnected.Mu.Unlock()
+	cfg.replicas[j].IsConnected.Mu.Unlock()
 }
 
-func (net *network) Disconnect(i, j int) {
-	net.conn[i][j].Disconnect()
+func (cfg *config) Disconnect(i, j int) {
+	cfg.replicas[i].IsConnected.Mu.Lock()
+	cfg.replicas[j].IsConnected.Mu.Lock()
+	cfg.replicas[i].IsConnected.Connected[j] = false
+	cfg.replicas[j].IsConnected.Connected[i] = false
+	cfg.replicas[i].IsConnected.Mu.Unlock()
+	cfg.replicas[j].IsConnected.Mu.Unlock()
 }
 
 func MakeNetwork(n int) *network {
@@ -25,8 +41,13 @@ func MakeNetwork(n int) *network {
 	net.conn = make([][]*genericsmr.SimConn, n)
 	for i := 0; i < n; i++ {
 		net.conn[i] = make([]*genericsmr.SimConn, n)
-		for j := 0; j < n; j++ {
-			net.conn[i][j] = genericsmr.NewSimConn()
+	}
+	for i := 0; i < n; i++ {
+		for j := i+1; j < n; j++ {
+			r1, w1 := io.Pipe()
+			r2, w2 := io.Pipe()
+			net.conn[i][j] = genericsmr.NewSimConn(r1, w2)
+			net.conn[j][i] = genericsmr.NewSimConn(r2, w1)
 		}
 	}
 	net.n = n
@@ -75,16 +96,27 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 	}
 
 	// connect everyone
-	for i := 0; i < cfg.n; i++ {
-		cfg.connect(i)
-	}
+	// for i := 0; i < cfg.n; i++ {
+	// 	for j := 0; j < cfg.n; j++ {
+	// 		cfg.replicas[i].IsConnected.Mu.Lock()
+	// 		cfg.replicas[j].IsConnected.Mu.Lock()
+	// 		cfg.replicas[i].IsConnected.Connected[j] = true
+	// 		cfg.replicas[j].IsConnected.Connected[i] = true
+	// 		cfg.replicas[i].IsConnected.Mu.Unlock()
+	// 		cfg.replicas[j].IsConnected.Mu.Unlock()
+	// 	}
+	// }
 
 	for i := 0; i < cfg.n; i++ {
 		for j := 0; j < cfg.n; j++ {
 			if i != j {
-				cfg.replicas[i].ConnectToPeersSim(j, cfg.net.conn[j][i], cfg.net.conn[i][j])
+				cfg.replicas[i].ConnectToPeersSim(j, cfg.net.conn[i][j])
 			}
 		}
+	}
+
+	for i := 0; i < cfg.n; i++ {
+		cfg.replicas[i].ConnectListenToPeers()
 	}
 
 	// cfg.replicas[0].PeerWriters[1].Write([]byte("hmmmmm"))
@@ -92,12 +124,4 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 	// fmt.Println(string(bs))
 
 	return cfg
-}
-
-func (cfg *config) connect(i int) {
-	for j := 0; j < cfg.n; j++ {
-		if i != j {
-			cfg.net.Connect(i, j)
-		}
-	}
 }
