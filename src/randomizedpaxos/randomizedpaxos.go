@@ -21,6 +21,34 @@ import (
 // 	Unknown
 // )
 type Entry = randomizedpaxosproto.Entry
+type ReplicateEntries = randomizedpaxosproto.ReplicateEntries
+type ReplicateEntriesReply = randomizedpaxosproto.ReplicateEntriesReply
+type RequestVote = randomizedpaxosproto.RequestVote
+type RequestVoteReply = randomizedpaxosproto.RequestVoteReply
+type BenOrBroadcast = randomizedpaxosproto.BenOrBroadcast
+type BenOrBroadcastReply = randomizedpaxosproto.BenOrBroadcastReply
+type BenOrConsensus = randomizedpaxosproto.BenOrConsensus
+type BenOrConsensusReply = randomizedpaxosproto.BenOrConsensusReply
+type GetCommittedData = randomizedpaxosproto.GetCommittedData
+type GetCommittedDataReply = randomizedpaxosproto.GetCommittedDataReply
+type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
+type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
+
+// type BenOrConsensusMsg interface {
+// 	getSenderId() int32
+// 	getTerm() int32
+// 	getIndex() int32
+// 	getIteration() int32
+// 	getClientReq() Entry
+// }
+
+type BenOrBroadcastMsg interface {
+	GetSenderId() int32
+	GetTerm() int32
+	GetIndex() int32
+	GetIteration() int32
+	GetClientReq() randomizedpaxosproto.Entry
+}
 
 const (
 	False uint8 = iota
@@ -60,29 +88,29 @@ type Replica struct {
 	*genericsmr.Replica // extends a generic Paxos replica
 
 	replicateEntriesChan         	chan fastrpc.Serializable
-	replicateEntriesReplyChan		chan fastrpc.Serializable
-	requestVoteChan		          	chan fastrpc.Serializable
-	requestVoteReplyChan     		chan fastrpc.Serializable
-	benOrBroadcastChan    			chan fastrpc.Serializable
-	benOrBroadcastReplyChan    		chan fastrpc.Serializable
-	benOrConsensusChan    			chan fastrpc.Serializable
-	benOrConsensusReplyChan   		chan fastrpc.Serializable
-	getCommittedDataChan			chan fastrpc.Serializable
-	getCommittedDataReplyChan		chan fastrpc.Serializable
-	infoBroadcastChan				chan fastrpc.Serializable
-	infoBroadcastReplyChan			chan fastrpc.Serializable
+	replicateEntriesReplyChan	chan fastrpc.Serializable
+	requestVoteChan		        chan fastrpc.Serializable
+	requestVoteReplyChan     	chan fastrpc.Serializable
+	benOrBroadcastChan    		chan fastrpc.Serializable
+	benOrBroadcastReplyChan    	chan fastrpc.Serializable
+	benOrConsensusChan    		chan fastrpc.Serializable
+	benOrConsensusReplyChan   	chan fastrpc.Serializable
+	getCommittedDataChan		chan fastrpc.Serializable
+	getCommittedDataReplyChan	chan fastrpc.Serializable
+	infoBroadcastChan		chan fastrpc.Serializable
+	infoBroadcastReplyChan		chan fastrpc.Serializable
 	replicateEntriesRPC          	uint8
 	replicateEntriesReplyRPC     	uint8
-	requestVoteRPC           		uint8
-	requestVoteReplyRPC      		uint8
+	requestVoteRPC           	uint8
+	requestVoteReplyRPC      	uint8
 	benOrBroadcastRPC           	uint8
 	benOrBroadcastReplyRPC      	uint8
-	benOrConsensusRPC      			uint8
-	benOrConsensusReplyRPC     		uint8
-	getCommittedDataRPC				uint8
-	getCommittedDataReplyRPC		uint8
-	infoBroadcastRPC      			uint8
-	infoBroadcastReplyRPC     		uint8
+	benOrConsensusRPC      		uint8
+	benOrConsensusReplyRPC     	uint8
+	getCommittedDataRPC		uint8
+	getCommittedDataReplyRPC	uint8
+	infoBroadcastRPC      		uint8
+	infoBroadcastReplyRPC     	uint8
 
 	// used to ignore entries in the past
 	// replicateEntriesCounter			rpcCounter
@@ -91,36 +119,36 @@ type Replica struct {
 	// benOrConsensusCounter			rpcCounter
 	// infoBroadcastCounter				rpcCounter
 
-	isLeader						bool
-	electionTimeout         		int
-	heartbeatTimeout         		int
-	benOrStartWaitTimeout			int
-	benOrResendTimeout				int
-	currentTerm						int
-	log								[]Entry
-	pq								ExtendedPriorityQueue // to be fixed
+	isLeader			bool
+	electionTimeout         	int
+	heartbeatTimeout         	int
+	benOrStartWaitTimeout		int
+	benOrResendTimeout		int
+	currentTerm			int
+	log				[]Entry
+	pq				ExtendedPriorityQueue // to be fixed
 
-	benOrState						BenOrState
-	benOrIndex						int
-	preparedIndex					int // length of the log that has been prepared except for at most 1 entry that's still running benOr
-	lastApplied						int
-	entries							[]Entry
-	nextIndex						[]int
-	matchIndex						[]int // highest known prepared index for each replica
-	commitIndex						[]int // highest known commit index for each replica
-	currentTimer					time.Time
-	highestTimestamp				[]int64 // highest timestamp seen from each replica (used to ignore old requests)
-	votesReceived					int
-	votedFor						int
-	requestVoteEntries				[]Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
+	benOrState			BenOrState
+	benOrIndex			int
+	preparedIndex			int // length of the log that has been prepared except for at most 1 entry that's still running benOr
+	lastApplied			int
+	entries				[]Entry
+	nextIndex			[]int
+	matchIndex			[]int // highest known prepared index for each replica
+	commitIndex			[]int // highest known commit index for each replica
+	currentTimer			time.Time
+	highestTimestamp		[]int64 // highest timestamp seen from each replica (used to ignore old requests)
+	votesReceived			int
+	votedFor			int
+	requestVoteEntries		[]Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
 	// requestVoteBenOrIndex		int
 	// requestVotePreparedIndex		int
 
-	clientWriters      				map[uint32]*bufio.Writer
-	heartbeatTimer					*time.Timer
-	electionTimer					*time.Timer
-	benOrStartWaitTimer				*time.Timer
-	benOrResendTimer				*time.Timer
+	clientWriters      		map[uint32]*bufio.Writer
+	heartbeatTimer			*time.Timer
+	electionTimer			*time.Timer
+	benOrStartWaitTimer		*time.Timer
+	benOrResendTimer		*time.Timer
 }
 
 
@@ -222,8 +250,8 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
 			benOrRepliesReceived: 0,
 			// benOrStage: StageOne,
-			benOrConsensusMessages: make([]randomizedpaxosproto.BenOrConsensus, 0),
-			benOrBroadcastMessages: make([]BenOrBroadcastData, 0),
+			benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
+			benOrConsensusMessages: make([]BenOrConsensus, 0),
 			biasedCoin: false,
 		},
 		benOrIndex: 1,
@@ -270,41 +298,41 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		FromLeader: False,
 	}
 
-	r.replicateEntriesRPC = r.RegisterRPC(new(randomizedpaxosproto.ReplicateEntries), r.replicateEntriesChan)
-	r.replicateEntriesReplyRPC = r.RegisterRPC(new(randomizedpaxosproto.ReplicateEntriesReply), r.replicateEntriesReplyChan)
-	r.requestVoteRPC = r.RegisterRPC(new(randomizedpaxosproto.RequestVote), r.requestVoteChan)
-	r.requestVoteReplyRPC = r.RegisterRPC(new(randomizedpaxosproto.RequestVoteReply), r.requestVoteReplyChan)
-	r.benOrBroadcastRPC = r.RegisterRPC(new(randomizedpaxosproto.BenOrBroadcast), r.benOrBroadcastChan)
-	r.benOrBroadcastReplyRPC = r.RegisterRPC(new(randomizedpaxosproto.BenOrBroadcastReply), r.benOrBroadcastReplyChan)
-	r.benOrConsensusRPC = r.RegisterRPC(new(randomizedpaxosproto.BenOrConsensus), r.benOrConsensusChan)
-	r.benOrConsensusReplyRPC = r.RegisterRPC(new(randomizedpaxosproto.BenOrConsensusReply), r.benOrConsensusReplyChan)
-	r.getCommittedDataRPC = r.RegisterRPC(new(randomizedpaxosproto.GetCommittedData), r.getCommittedDataChan)
-	r.getCommittedDataReplyRPC = r.RegisterRPC(new(randomizedpaxosproto.GetCommittedDataReply), r.getCommittedDataReplyChan)
-	r.infoBroadcastRPC = r.RegisterRPC(new(randomizedpaxosproto.InfoBroadcast), r.infoBroadcastChan)
-	r.infoBroadcastReplyRPC = r.RegisterRPC(new(randomizedpaxosproto.InfoBroadcastReply), r.infoBroadcastReplyChan)
+	r.replicateEntriesRPC = r.RegisterRPC(new(ReplicateEntries), r.replicateEntriesChan)
+	r.replicateEntriesReplyRPC = r.RegisterRPC(new(ReplicateEntriesReply), r.replicateEntriesReplyChan)
+	r.requestVoteRPC = r.RegisterRPC(new(RequestVote), r.requestVoteChan)
+	r.requestVoteReplyRPC = r.RegisterRPC(new(RequestVoteReply), r.requestVoteReplyChan)
+	r.benOrBroadcastRPC = r.RegisterRPC(new(BenOrBroadcast), r.benOrBroadcastChan)
+	r.benOrBroadcastReplyRPC = r.RegisterRPC(new(BenOrBroadcastReply), r.benOrBroadcastReplyChan)
+	r.benOrConsensusRPC = r.RegisterRPC(new(BenOrConsensus), r.benOrConsensusChan)
+	r.benOrConsensusReplyRPC = r.RegisterRPC(new(BenOrConsensusReply), r.benOrConsensusReplyChan)
+	r.getCommittedDataRPC = r.RegisterRPC(new(GetCommittedData), r.getCommittedDataChan)
+	r.getCommittedDataReplyRPC = r.RegisterRPC(new(GetCommittedDataReply), r.getCommittedDataReplyChan)
+	r.infoBroadcastRPC = r.RegisterRPC(new(InfoBroadcast), r.infoBroadcastChan)
+	r.infoBroadcastReplyRPC = r.RegisterRPC(new(InfoBroadcastReply), r.infoBroadcastReplyChan)
 
 	// go r.run()
 
 	return r
 }
 
-// func (r *Replica) replyReplicateEntries(replicaId int32, reply *randomizedpaxosproto.ReplicateEntriesReply) {
+// func (r *Replica) replyReplicateEntries(replicaId int32, reply *ReplicateEntriesReply) {
 // 	r.SendMsg(replicaId, r.replicateEntriesReplyRPC, reply)
 // }
 
-// func (r *Replica) replyRequestVote(replicaId int32, reply *randomizedpaxosproto.RequestVoteReply) {
+// func (r *Replica) replyRequestVote(replicaId int32, reply *RequestVoteReply) {
 // 	r.SendMsg(replicaId, r.requestVoteReplyRPC, reply)
 // }
 
-// func (r *Replica) replyBenOrBroadcast(replicaId int32, reply *randomizedpaxosproto.BenOrBroadcastReply) {
+// func (r *Replica) replyBenOrBroadcast(replicaId int32, reply *BenOrBroadcastReply) {
 // 	r.SendMsg(replicaId, r.benOrBroadcastReplyRPC, reply)
 // }
 
-// func (r *Replica) replyBenOrConsensus(replicaId int32, reply *randomizedpaxosproto.BenOrConsensusReply) {
+// func (r *Replica) replyBenOrConsensus(replicaId int32, reply *BenOrConsensusReply) {
 // 	r.SendMsg(replicaId, r.benOrConsensusReplyRPC, reply)
 // }
 
-// func (r *Replica) replyInfoBroadcast(replicaId int32, reply *randomizedpaxosproto.InfoBroadcastReply) {
+// func (r *Replica) replyInfoBroadcast(replicaId int32, reply *InfoBroadcastReply) {
 // 	r.SendMsg(replicaId, r.infoBroadcastReplyRPC, reply)
 // }
 
@@ -401,70 +429,70 @@ func (r *Replica) run() {
 				break
 
 			case replicateEntriesS := <-r.replicateEntriesChan:
-				replicateEntries := replicateEntriesS.(*randomizedpaxosproto.ReplicateEntries)
+				replicateEntries := replicateEntriesS.(*ReplicateEntries)
 				//got a ReplicateEntries message
 				dlog.Printf("Received ReplicateEntries from replica %d, for instance %d\n", replicateEntries.SenderId, replicateEntries.Term)
 				r.handleReplicateEntries(replicateEntries)
 				break
 
 			case replicateEntriesReplyS := <-r.replicateEntriesReplyChan:
-				replicateEntriesReply := replicateEntriesReplyS.(*randomizedpaxosproto.ReplicateEntriesReply)
+				replicateEntriesReply := replicateEntriesReplyS.(*ReplicateEntriesReply)
 				//got a ReplicateEntriesReply message
 				dlog.Printf("Received ReplicateEntriesReply from replica %d\n", replicateEntriesReply.Term)
 				r.handleReplicateEntriesReply(replicateEntriesReply)
 				break
 
 			case requestVoteS := <-r.requestVoteChan:
-				requestVote := requestVoteS.(*randomizedpaxosproto.RequestVote)
+				requestVote := requestVoteS.(*RequestVote)
 				//got a RequestVote message
 				dlog.Printf("Received RequestVote from replica %d, for instance %d\n", requestVote.SenderId, requestVote.Term)
 				r.handleRequestVote(requestVote)
 				break
 
 			case requestVoteReplyS := <-r.requestVoteReplyChan:
-				requestVoteReply := requestVoteReplyS.(*randomizedpaxosproto.RequestVoteReply)
+				requestVoteReply := requestVoteReplyS.(*RequestVoteReply)
 				//got a RequestVoteReply message
 				dlog.Printf("Received RequestVoteReply from replica %d\n", requestVoteReply.Term)
 				r.handleRequestVoteReply(requestVoteReply)
 				break
 
 			case benOrBroadcastS := <-r.benOrBroadcastChan:
-				benOrBroadcast := benOrBroadcastS.(*randomizedpaxosproto.BenOrBroadcast)
+				benOrBroadcast := benOrBroadcastS.(*BenOrBroadcast)
 				//got a BenOrBroadcast message
 				dlog.Printf("Received BenOrBroadcast from replica %d, for instance %d\n", benOrBroadcast.SenderId, benOrBroadcast.Term)
 				r.handleBenOrBroadcast(benOrBroadcast)
 				break
 
 			case benOrBroadcastReplyS := <-r.benOrBroadcastReplyChan:
-				benOrBroadcastReply := benOrBroadcastReplyS.(*randomizedpaxosproto.BenOrBroadcastReply)
+				benOrBroadcastReply := benOrBroadcastReplyS.(*BenOrBroadcastReply)
 				//got a BenOrBroadcastReply message
 				dlog.Printf("Received BenOrBroadcastReply from replica %d\n", benOrBroadcastReply.Term)
-				r.handleBenOrBroadcastReply(benOrBroadcastReply)
+				r.handleBenOrBroadcast(benOrBroadcastReply)
 				break
 
 			case benOrConsensusS := <-r.benOrConsensusChan:
-				benOrConsensus := benOrConsensusS.(*randomizedpaxosproto.BenOrConsensus)
+				benOrConsensus := benOrConsensusS.(*BenOrConsensus)
 				//got a BenOrConsensus message
 				dlog.Printf("Received BenOrConsensus from replica %d, for instance %d\n", benOrConsensus.SenderId, benOrConsensus.Term)
 				r.handleBenOrConsensus(benOrConsensus)
 				break
 
 			case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
-				benOrConsensusReply := benOrConsensusReplyS.(*randomizedpaxosproto.BenOrConsensusReply)
+				benOrConsensusReply := benOrConsensusReplyS.(*BenOrConsensusReply)
 				//got a BenOrConsensusReply message
 				dlog.Printf("Received BenOrConsensusReply from replica %d\n", benOrConsensusReply.Term)
 				r.handleBenOrConsensusReply(benOrConsensusReply)
 				break
 
 			case infoBroadcastS := <-r.infoBroadcastChan:
-				infoBroadcast := infoBroadcastS.(*randomizedpaxosproto.InfoBroadcast)
+				infoBroadcast := infoBroadcastS.(*InfoBroadcast)
 				//got a InfoBroadcast message
 				dlog.Printf("Received InfoBroadcast from replica %d, for instance %d\n", infoBroadcast.SenderId, infoBroadcast.Term)
 				r.handleInfoBroadcast(infoBroadcast)
 				break
 
 			case infoBroadcastReplyS := <-r.infoBroadcastReplyChan:
-				infoBroadcastReply := infoBroadcastReplyS.(*randomizedpaxosproto.InfoBroadcastReply)
+				infoBroadcastReply := infoBroadcastReplyS.(*InfoBroadcastReply)
 				//got a InfoBroadcastReply message
 				dlog.Printf("Received InfoBroadcastReply from replica %d\n", infoBroadcastReply.Term)
 				r.handleInfoBroadcastReply(infoBroadcastReply)
@@ -514,7 +542,7 @@ func (r *Replica) bcastInfoBroadcast(clientReq Entry) {
 	// r.infoBroadcastCounter = rpcCounter{r.currentTerm, r.infoBroadcastCounter.count+1}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
-			args := &randomizedpaxosproto.InfoBroadcast{
+			args := &InfoBroadcast{
 				SenderId: r.Id, Term: int32(r.currentTerm), ClientReq: clientReq}
 
 			r.SendMsg(int32(i), r.infoBroadcastRPC, args)
@@ -544,14 +572,14 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 	}
 }
 
-func (r *Replica) handleInfoBroadcast(rpc *randomizedpaxosproto.InfoBroadcast) {
+func (r *Replica) handleInfoBroadcast(rpc *InfoBroadcast) {
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
 		r.isLeader = false
 	}
 
-	args := &randomizedpaxosproto.InfoBroadcastReply{
-		ReplicaId: r.Id, Term: int32(r.currentTerm)}
+	args := &InfoBroadcastReply{
+		SenderId: r.Id, Term: int32(r.currentTerm)}
 	r.SendMsg(rpc.SenderId, r.infoBroadcastRPC, args)
 
 	if r.isLeader {
@@ -565,7 +593,7 @@ func (r *Replica) handleInfoBroadcast(rpc *randomizedpaxosproto.InfoBroadcast) {
 	return
 }
 
-func (r *Replica) handleInfoBroadcastReply (rpc *randomizedpaxosproto.InfoBroadcastReply) {
+func (r *Replica) handleInfoBroadcastReply (rpc *InfoBroadcastReply) {
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
 

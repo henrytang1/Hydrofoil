@@ -156,52 +156,6 @@ func (r *Replica) BeTheLeader2(args *genericsmrproto.BeTheLeaderArgs, reply *gen
 	return nil
 }
 
-// type SimConn struct {
-//     *io.PipeReader
-// 	*io.PipeWriter
-// 	mu            	sync.Mutex
-// 	connected 		bool // connected bool
-// }
-
-// func NewSimConn(pr *io.PipeReader, pw *io.PipeWriter) *SimConn{
-// 	return &SimConn{
-// 		PipeReader: pr,
-// 		PipeWriter: pw,
-// 		connected: true,
-// 	}
-// }
-
-// func (c *SimConn) Read(b []byte) (n int, err error) {
-// 	// c.mu.Lock()
-// 	// defer c.mu.Unlock()
-// 	return c.PipeReader.Read(b)
-// }
-
-// func (c *SimConn) Write(b []byte) (n int, err error) {
-// 	c.mu.Lock()
-// 	// defer c.mu.Unlock()
-// 	fmt.Println("Done")
-// 	if (!c.connected) {
-// 		c.mu.Unlock()
-// 		return 0, nil
-// 	}
-// 	c.mu.Unlock()
-// 	n, err = c.PipeWriter.Write(b)
-// 	return n, err
-// }
-
-// func (c *SimConn) Disconnect() {
-// 	c.mu.Lock()
-// 	defer c.mu.Unlock()
-// 	c.connected = false
-// }
-
-// func (c *SimConn) Connect() {
-// 	c.mu.Lock()
-// 	defer c.mu.Unlock()
-// 	c.connected = true
-// }
-
 type SimConn struct {
     *io.PipeReader
 	*io.PipeWriter

@@ -37,8 +37,17 @@ type ReplicateEntries struct {
     LeaderPreparedIndex				int32
 }
 
+func (t *ReplicateEntries) GetSenderId() int32 { return t.SenderId }
+func (t *ReplicateEntries) GetTerm() int32 { return t.Term }
+func (t *ReplicateEntries) GetPrevLogIndex() int32 { return t.PrevLogIndex }
+func (t *ReplicateEntries) GetPrevLogTerm() int32 { return t.PrevLogTerm }
+func (t *ReplicateEntries) GetEntries() []Entry { return t.Entries }
+func (t *ReplicateEntries) GetSetLeaderBenOrIndex(leaderBenOrIndex int32) { t.LeaderBenOrIndex = leaderBenOrIndex }
+func (t *ReplicateEntries) GetLeaderBenOrIndex() int32 { return t.LeaderBenOrIndex }
+func (t *ReplicateEntries) GetLeaderPreparedIndex() int32 { return t.LeaderPreparedIndex }
+
 type ReplicateEntriesReply struct {
-    ReplicaId	   					int32
+    SenderId	   					int32
     Term							int32
     // Counter							int32
     ReplicaBenOrIndex				int32
@@ -52,6 +61,15 @@ type ReplicateEntriesReply struct {
     Success							uint8 // bool
 }
 
+func (t *ReplicateEntriesReply) GetSenderId() int32 { return t.SenderId }
+func (t *ReplicateEntriesReply) GetTerm() int32 { return t.Term }
+func (t *ReplicateEntriesReply) GetReplicaBenOrIndex() int32 { return t.ReplicaBenOrIndex }
+func (t *ReplicateEntriesReply) GetReplicaPreparedIndex() int32 { return t.ReplicaPreparedIndex }
+func (t *ReplicateEntriesReply) GetReplicaEntries() []Entry { return t.ReplicaEntries }
+func (t *ReplicateEntriesReply) GetPrevLogIndex() int32 { return t.PrevLogIndex }
+func (t *ReplicateEntriesReply) GetRequestedIndex() int32 { return t.RequestedIndex }
+func (t *ReplicateEntriesReply) GetSuccess() uint8 { return t.Success }
+
 type RequestVote struct {
     SenderId		   				int32
     Term 							int32
@@ -60,7 +78,7 @@ type RequestVote struct {
 }
 
 type RequestVoteReply struct {
-    ReplicaId	   					int32
+    SenderId	   					int32
     Term							int32
     // Counter							int32
     VoteGranted						uint8 // bool
@@ -82,14 +100,26 @@ type BenOrBroadcast struct {
     // Index							int32
 }
 
+func (t *BenOrBroadcast) GetSenderId() int32 { return t.SenderId }
+func (t *BenOrBroadcast) GetTerm() int32 { return t.Term }
+func (t *BenOrBroadcast) GetIndex() int32 { return t.Index }
+func (t *BenOrBroadcast) GetIteration() int32 { return t.Iteration }
+func (t *BenOrBroadcast) GetClientReq() Entry { return t.ClientReq }
+
 type BenOrBroadcastReply struct {
-    ReplicaId	   					int32
+    SenderId	   					int32
     Term							int32
     // Counter                         int32
     Index                           int32
     Iteration                       int32
     ClientReq   					Entry
 }
+
+func (t *BenOrBroadcastReply) GetSenderId() int32 { return t.SenderId }
+func (t *BenOrBroadcastReply) GetTerm() int32 { return t.Term }
+func (t *BenOrBroadcastReply) GetIndex() int32 { return t.Index }
+func (t *BenOrBroadcastReply) GetIteration() int32 { return t.Iteration }
+func (t *BenOrBroadcastReply) GetClientReq() Entry { return t.ClientReq }
 
 type BenOrConsensus struct {
     SenderId		   				int32
@@ -103,8 +133,18 @@ type BenOrConsensus struct {
     EntryType						int32 // 0 or 1 depending on BenOr stage
 }
 
+func (t *BenOrConsensus) GetMsgId() int32 { return t.SenderId }
+func (t *BenOrConsensus) GetTerm() int32 { return t.Term }
+func (t *BenOrConsensus) GetIndex() int32 { return t.Index }
+func (t *BenOrConsensus) GetIteration() int32 { return t.Iteration }
+func (t *BenOrConsensus) GetPhase() int32 { return t.Phase }
+func (t *BenOrConsensus) GetVote() int32 { return t.Vote }
+func (t *BenOrConsensus) GetMajRequest() Entry { return t.MajRequest }
+func (t *BenOrConsensus) GetLeaderRequest() Entry { return t.LeaderRequest }
+func (t *BenOrConsensus) GetEntryType() int32 { return t.EntryType }
+
 type BenOrConsensusReply struct {
-    ReplicaId	   					int32
+    SenderId	   					int32
     Term							int32
     Index                           int32
     Iteration                       int32
@@ -116,6 +156,16 @@ type BenOrConsensusReply struct {
     // IndexCommitted                  uint8 // bool // true if replica has committed entry
     // CommittedEntry					Entry
 }
+
+func (t *BenOrConsensusReply) GetOrigSenderId() int32 { return t.SenderId } // returns the replica that first sent to BenOrConsensusReply
+func (t *BenOrConsensusReply) GetTerm() int32 { return t.Term }
+func (t *BenOrConsensusReply) GetIndex() int32 { return t.Index }
+func (t *BenOrConsensusReply) GetIteration() int32 { return t.Iteration }
+func (t *BenOrConsensusReply) GetPhase() int32 { return t.Phase }
+func (t *BenOrConsensusReply) GetVote() int32 { return t.Vote }
+func (t *BenOrConsensusReply) GetMajRequest() Entry { return t.MajRequest }
+func (t *BenOrConsensusReply) GetLeaderRequest() Entry { return t.LeaderRequest }
+func (t *BenOrConsensusReply) GetEntryType() int32 { return t.EntryType }
 
 type GetCommittedData struct {
     SenderId           				int32
@@ -140,7 +190,7 @@ type InfoBroadcast struct {
 }
 
 type InfoBroadcastReply struct {
-    ReplicaId	   					int32
+    SenderId	   					int32
     Term							int32
     // Counter                         int32
 }

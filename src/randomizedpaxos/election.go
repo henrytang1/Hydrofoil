@@ -2,7 +2,6 @@ package randomizedpaxos
 
 import (
 	"math/rand"
-	"randomizedpaxosproto"
 	"time"
 )
 
@@ -17,7 +16,7 @@ func (r *Replica) startElection() {
 	r.votesReceived = 1 // itself
 	r.requestVoteEntries = append(r.log[r.preparedIndex+1:], r.pq.extractList()...)
 
-	args := &randomizedpaxosproto.RequestVote{
+	args := &RequestVote{
 		SenderId: r.Id,
 		Term: int32(r.currentTerm),
 		CandidateBenOrIndex: int32(r.benOrIndex),
@@ -27,7 +26,7 @@ func (r *Replica) startElection() {
 }
 
 
-func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
+func (r *Replica) handleRequestVote (rpc *RequestVote) {
 	replicaEntries := make([]Entry, 0)
 	if int(rpc.CandidateBenOrIndex)+1 < len(r.log) {
 		replicaEntries = r.log[rpc.CandidateBenOrIndex:]
@@ -39,8 +38,8 @@ func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
 		entryAtCandidateBenOrIndex = r.log[rpc.CandidateBenOrIndex]
 	}
 	
-	args := &randomizedpaxosproto.RequestVoteReply{
-		ReplicaId: r.Id,
+	args := &RequestVoteReply{
+		SenderId: r.Id,
 		Term: int32(r.currentTerm),
 		// Counter: int32(r.infoBroadcastCounter.count),
 		VoteGranted: False,
@@ -72,7 +71,7 @@ func (r *Replica) handleRequestVote (rpc *randomizedpaxosproto.RequestVote) {
 }
 
 
-func (r *Replica) handleRequestVoteReply (rpc *randomizedpaxosproto.RequestVoteReply) {
+func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
 		

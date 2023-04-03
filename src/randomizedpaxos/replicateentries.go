@@ -2,11 +2,10 @@ package randomizedpaxos
 
 import (
 	"math/rand"
-	"randomizedpaxosproto"
 	"time"
 )
 
-func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntries) {
+func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	replicaEntries := make([]Entry, 0)
 	if int(rpc.LeaderPreparedIndex)+1 < len(r.log) {
 		replicaEntries = r.log[rpc.LeaderPreparedIndex+1:]
@@ -18,8 +17,8 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 		entryAtLeaderBenOrIndex = r.log[rpc.LeaderBenOrIndex]
 	}
 
-	args := &randomizedpaxosproto.ReplicateEntriesReply{
-		ReplicaId: r.Id,
+	args := &ReplicateEntriesReply{
+		SenderId: r.Id,
 		Term: int32(r.currentTerm),
 		// Counter: int32(r.infoBroadcastCounter.count),
 		ReplicaBenOrIndex: int32(r.benOrIndex),
@@ -74,7 +73,7 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 		return
 	}
 
-	// args = &randomizedpaxosproto.ReplicateEntriesReply{}
+	// args = &ReplicateEntriesReply{}
 	// if (rpc.LeaderBenOrIndex <= int32(r.benOrIndex)) {
 	// 	args.EntryAtLeaderBenOrIndex = r.log[rpc.LeaderBenOrIndex]
 	// }
@@ -139,8 +138,8 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 	// extract values from priority queue and append them
 	replicaEntries = append(replicaEntries, r.pq.extractList()...)
 
-	args = &randomizedpaxosproto.ReplicateEntriesReply{
-		ReplicaId: r.Id,
+	args = &ReplicateEntriesReply{
+		SenderId: r.Id,
 		Term: int32(r.currentTerm),
 		// Counter: int32(r.infoBroadcastCounter.count),
 		ReplicaBenOrIndex: int32(r.benOrIndex),
@@ -157,7 +156,7 @@ func (r *Replica) handleReplicateEntries(rpc *randomizedpaxosproto.ReplicateEntr
 	return
 }
 
-func (r *Replica) handleReplicateEntriesReply (rpc *randomizedpaxosproto.ReplicateEntriesReply) {
+func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
 
@@ -208,13 +207,13 @@ func (r *Replica) handleReplicateEntriesReply (rpc *randomizedpaxosproto.Replica
 		}
 	}
 
-	r.commitIndex[rpc.ReplicaId] = max(r.commitIndex[rpc.ReplicaId], int(rpc.ReplicaBenOrIndex))-1
-	r.matchIndex[rpc.ReplicaId] = max(r.matchIndex[rpc.ReplicaId], int(rpc.ReplicaPreparedIndex))
+	r.commitIndex[rpc.SenderId] = max(r.commitIndex[rpc.SenderId], int(rpc.ReplicaBenOrIndex))-1
+	r.matchIndex[rpc.SenderId] = max(r.matchIndex[rpc.SenderId], int(rpc.ReplicaPreparedIndex))
 
 	if rpc.Success == True {
-		r.nextIndex[rpc.ReplicaId] = r.commitIndex[rpc.ReplicaId] + 1
+		r.nextIndex[rpc.SenderId] = r.commitIndex[rpc.SenderId] + 1
 	} else {
-		r.nextIndex[rpc.ReplicaId] = int(rpc.RequestedIndex)
+		r.nextIndex[rpc.SenderId] = int(rpc.RequestedIndex)
 		// TODO: can optimize this out
 	}
 }
@@ -225,7 +224,7 @@ func (r *Replica) bcastReplicateEntries() {
 	// r.replicateEntriesCounter = rpcCounter{r.currentTerm, r.replicateEntriesCounter.count+1}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
-			args := &randomizedpaxosproto.ReplicateEntries{
+			args := &ReplicateEntries{
 				SenderId: r.Id, Term: int32(r.currentTerm),
 				PrevLogIndex: int32(r.nextIndex[i]-1), PrevLogTerm: int32(r.log[r.nextIndex[i]-1].Term),
 				Entries: r.log[r.nextIndex[i]:], LeaderBenOrIndex: int32(r.benOrIndex), LeaderPreparedIndex: int32(r.preparedIndex)}

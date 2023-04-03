@@ -106,19 +106,19 @@ func TestInitialElection(t *testing.T) {
 	fmt.Println("Test: initial election...")
 
 	args := &randomizedpaxosproto.InfoBroadcastReply{
-		ReplicaId: 0, Term: 100}
+		SenderId: 0, Term: 100}
 	cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
 
 	cfg.Disconnect(0, 1)
 
 	args = &randomizedpaxosproto.InfoBroadcastReply{
-		ReplicaId: 0, Term: 300}
+		SenderId: 0, Term: 300}
 	cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
 
 	cfg.Connect(0, 1)
 
 	args = &randomizedpaxosproto.InfoBroadcastReply{
-		ReplicaId: 0, Term: 500}
+		SenderId: 0, Term: 500}
 	cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
 
 	time.Sleep(2000 * time.Second)
