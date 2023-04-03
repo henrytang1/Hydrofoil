@@ -17,7 +17,7 @@ const (
 
 type Entry struct {
     Data 	        state.Command
-    SenderId        int32
+    ReceiverId      int32
     Term 	        int32
     Index	        int32
     BenOrActive     uint8 // bool
@@ -130,10 +130,10 @@ type BenOrConsensus struct {
     Vote							int32
     MajRequest						Entry
     LeaderRequest					Entry
-    EntryType						int32 // 0 or 1 depending on BenOr stage
+    Stage   						int32 // 0 or 1 depending on BenOr stage
 }
 
-func (t *BenOrConsensus) GetMsgId() int32 { return t.SenderId }
+func (t *BenOrConsensus) GetSenderId() int32 { return t.SenderId }
 func (t *BenOrConsensus) GetTerm() int32 { return t.Term }
 func (t *BenOrConsensus) GetIndex() int32 { return t.Index }
 func (t *BenOrConsensus) GetIteration() int32 { return t.Iteration }
@@ -141,7 +141,7 @@ func (t *BenOrConsensus) GetPhase() int32 { return t.Phase }
 func (t *BenOrConsensus) GetVote() int32 { return t.Vote }
 func (t *BenOrConsensus) GetMajRequest() Entry { return t.MajRequest }
 func (t *BenOrConsensus) GetLeaderRequest() Entry { return t.LeaderRequest }
-func (t *BenOrConsensus) GetEntryType() int32 { return t.EntryType }
+func (t *BenOrConsensus) GetStage() int32 { return t.Stage }
 
 type BenOrConsensusReply struct {
     SenderId	   					int32
@@ -152,12 +152,12 @@ type BenOrConsensusReply struct {
     Vote                            int32
     MajRequest                      Entry
     LeaderRequest                   Entry
-    EntryType                       int32
+    Stage                           int32
     // IndexCommitted                  uint8 // bool // true if replica has committed entry
     // CommittedEntry					Entry
 }
 
-func (t *BenOrConsensusReply) GetOrigSenderId() int32 { return t.SenderId } // returns the replica that first sent to BenOrConsensusReply
+func (t *BenOrConsensusReply) GetSenderId() int32 { return t.SenderId } // returns the replica that first sent to BenOrConsensusReply
 func (t *BenOrConsensusReply) GetTerm() int32 { return t.Term }
 func (t *BenOrConsensusReply) GetIndex() int32 { return t.Index }
 func (t *BenOrConsensusReply) GetIteration() int32 { return t.Iteration }
@@ -165,7 +165,7 @@ func (t *BenOrConsensusReply) GetPhase() int32 { return t.Phase }
 func (t *BenOrConsensusReply) GetVote() int32 { return t.Vote }
 func (t *BenOrConsensusReply) GetMajRequest() Entry { return t.MajRequest }
 func (t *BenOrConsensusReply) GetLeaderRequest() Entry { return t.LeaderRequest }
-func (t *BenOrConsensusReply) GetEntryType() int32 { return t.EntryType }
+func (t *BenOrConsensusReply) GetStage() int32 { return t.Stage }
 
 type GetCommittedData struct {
     SenderId           				int32

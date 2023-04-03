@@ -2,7 +2,6 @@ package randomizedpaxos
 
 import (
 	"fmt"
-	"randomizedpaxosproto"
 	"testing"
 	"time"
 )
@@ -95,33 +94,31 @@ func TestInitialElection(t *testing.T) {
 
 	// time.Sleep(5 * time.Second)
 
+	
 
+	// servers := 3
+	// cfg := make_config(t, servers, false)
+	// // defer cfg.cleanup()
 
+	// fmt.Println("Test: initial election...")
 
+	// args := &randomizedpaxosproto.InfoBroadcastReply{
+	// 	SenderId: 0, Term: 100}
+	// cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
 
-	servers := 3
-	cfg := make_config(t, servers, false)
-	// defer cfg.cleanup()
+	// cfg.Disconnect(0, 1)
 
-	fmt.Println("Test: initial election...")
+	// args = &randomizedpaxosproto.InfoBroadcastReply{
+	// 	SenderId: 0, Term: 300}
+	// cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
 
-	args := &randomizedpaxosproto.InfoBroadcastReply{
-		SenderId: 0, Term: 100}
-	cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
+	// cfg.Connect(0, 1)
 
-	cfg.Disconnect(0, 1)
+	// args = &randomizedpaxosproto.InfoBroadcastReply{
+	// 	SenderId: 0, Term: 500}
+	// cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
 
-	args = &randomizedpaxosproto.InfoBroadcastReply{
-		SenderId: 0, Term: 300}
-	cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
-
-	cfg.Connect(0, 1)
-
-	args = &randomizedpaxosproto.InfoBroadcastReply{
-		SenderId: 0, Term: 500}
-	cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
-
-	time.Sleep(2000 * time.Second)
+	// time.Sleep(2000 * time.Second)
 
 
 

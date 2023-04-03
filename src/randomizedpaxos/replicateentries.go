@@ -32,13 +32,13 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		Success: False}
 
 	// reject if the term is out of date
-	if (int(rpc.Term) < r.currentTerm) {
+	if int(rpc.Term) < r.currentTerm {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
 	}
 
 	// update to follower if received term is newer
-	if (int(rpc.Term) > r.currentTerm) {
+	if int(rpc.Term) > r.currentTerm {
 		r.currentTerm = int(rpc.Term)
 
 		if (r.isLeader) {
@@ -53,7 +53,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	// we assume that r.entries[rpc.PrevLogIndex] is not currently running Ben-Or+
 	// reject if the previous term doesn't match
 	// if entry at previous term is running Ben-Or+, then we must reject and ask the leader to send over another entry
-	if (r.entries[rpc.PrevLogIndex].Term != rpc.PrevLogTerm || r.entries[rpc.PrevLogIndex].BenOrActive == True) {
+	if r.entries[rpc.PrevLogIndex].Term != rpc.PrevLogTerm || r.entries[rpc.PrevLogIndex].BenOrActive == True {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
 	}
@@ -67,7 +67,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 	// TODO: get rid of this later since I think it's uneccessary logic
 	// if this is a heartbeat, then we can just return
-	if (len(rpc.Entries) == 0) {
+	if len(rpc.Entries) == 0 {
 		// this is a heartbeat
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
@@ -157,7 +157,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 }
 
 func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
-	if (int(rpc.Term) > r.currentTerm) {
+	if int(rpc.Term) > r.currentTerm {
 		r.currentTerm = int(rpc.Term)
 
 		if (r.isLeader) {
@@ -169,7 +169,7 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 		r.votesReceived = 0
 	}
 
-	if (r.isLeader || int(rpc.Term) < r.currentTerm) {
+	if r.isLeader || int(rpc.Term) < r.currentTerm {
 		// ignore these entries
 		return
 	}

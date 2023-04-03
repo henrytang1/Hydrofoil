@@ -34,39 +34,55 @@ type GetCommittedDataReply = randomizedpaxosproto.GetCommittedDataReply
 type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
 type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
 
-// type BenOrConsensusMsg interface {
-// 	getSenderId() int32
-// 	getTerm() int32
-// 	getIndex() int32
-// 	getIteration() int32
-// 	getClientReq() Entry
-// }
+// type BenOrConsensus struct {
+// 	SenderId		   				int32
+// 	Term							int32
+// 	Index                           int32
+// 	Iteration						int32 // iteration
+// 	Phase							int32
+// 	Vote							int32
+// 	MajRequest						Entry
+// 	LeaderRequest					Entry
+// 	EntryType						int32 // 0 or 1 depending on BenOr stage
+//     }
 
 type BenOrBroadcastMsg interface {
 	GetSenderId() int32
 	GetTerm() int32
 	GetIndex() int32
 	GetIteration() int32
-	GetClientReq() randomizedpaxosproto.Entry
+	GetClientReq() Entry
+}
+
+type BenOrConsensusMsg interface {
+	GetSenderId() int32
+	GetTerm() int32
+	GetIndex() int32
+	GetIteration() int32
+	GetPhase() int32
+	GetVote() int32
+	GetMajRequest() Entry
+	GetLeaderRequest() Entry
+	GetStage() int32
 }
 
 const (
-	False uint8 = iota
-	True
+	False uint8 = 0
+	True        = 1
 )
 
 const ( // for benOrStatus
-	Broadcasting uint8 = iota
-	StageOne
-	StageTwo
-	Stopped // just means that Ben Or isn't running at this moment
+	Broadcasting uint8 = 1
+	StageOne	   = 2
+	StageTwo	   = 3
+	Stopped 	   = 4 // just means that Ben Or isn't running at this moment
 	// WaitingToBeUpdated
 )
 
 const (
-	Vote0 uint8 = iota
-	Vote1
-	VoteQuestionMark
+	Vote0 uint8 	   = 1
+	Vote1		   = 2
+	VoteQuestionMark   = 3
 )
 
 const INJECT_SLOWDOWN = false
@@ -76,12 +92,33 @@ const CHAN_BUFFER_SIZE = 200000
 const MAX_BATCH = 5000
 const BATCH_INTERVAL = 100 * time.Microsecond
 
-const TRUE = uint8(1)
-const FALSE = uint8(0)
+// const TRUE = uint8(1)
+// const FALSE = uint8(0)
 
 type RPCCounter struct {
 	term	int
 	count	int
+}
+
+type Set struct {
+	m map[UniqueCommand]bool
+}
+
+func newSet() *Set {
+	return &Set{make(map[UniqueCommand]bool)}
+}
+
+func (s *Set) add(item UniqueCommand) {
+	s.m[item] = true
+}
+
+func (s *Set) remove(item UniqueCommand) {
+	delete(s.m, item)
+}
+
+func (s *Set) contains(item UniqueCommand) bool {
+	_, ok := s.m[item]
+	return ok
 }
 
 type Replica struct {
@@ -126,7 +163,8 @@ type Replica struct {
 	benOrResendTimeout		int
 	currentTerm			int
 	log				[]Entry
-	pq				ExtendedPriorityQueue // to be fixed
+	pq				*ExtendedPriorityQueue // to be fixed
+	seenEntries			*Set
 
 	benOrState			BenOrState
 	benOrIndex			int
@@ -240,6 +278,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		currentTerm: 0,
 		log: make([]Entry, 0),
 		pq: newExtendedPriorityQueue(),
+		seenEntries: newSet(),
 		benOrState: BenOrState{
 			benOrStatus: Stopped,
 			benOrIteration: 0,
@@ -251,7 +290,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 			benOrRepliesReceived: 0,
 			// benOrStage: StageOne,
 			benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
-			benOrConsensusMessages: make([]BenOrConsensus, 0),
+			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
 			biasedCoin: false,
 		},
 		benOrIndex: 1,
@@ -280,7 +319,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 	r.Durable = durable
 	r.entries[0] = Entry{
 		Data: state.Command{},
-		SenderId: -1,
+		ReceiverId: -1,
 		Term: -1,
 		Index: 0,
 		BenOrActive: False,
@@ -290,7 +329,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 
 	r.entries[1] = Entry{
 		Data: state.Command{},
-		SenderId: -1,
+		ReceiverId: -1,
 		Term: -1,
 		Index: 1,
 		BenOrActive: True,
@@ -347,7 +386,6 @@ func (r *Replica) clock() {
 
 /* Main event processing loop */
 func (r *Replica) run() {
-
 	if (r.IsProduction) { 
 		r.ConnectToPeers()
 
@@ -396,7 +434,7 @@ func (r *Replica) run() {
 				if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
 					val := r.log[i].Data.Execute(r.State)
 					propreply := &genericsmrproto.ProposeReplyTS{
-						OK: TRUE,
+						OK: True,
 						CommandId: r.log[i].Data.OpId,
 						Value: val,
 						Timestamp: r.log[i].Timestamp} // TODO: check if timestamp is correct
@@ -481,7 +519,7 @@ func (r *Replica) run() {
 				benOrConsensusReply := benOrConsensusReplyS.(*BenOrConsensusReply)
 				//got a BenOrConsensusReply message
 				dlog.Printf("Received BenOrConsensusReply from replica %d\n", benOrConsensusReply.Term)
-				r.handleBenOrConsensusReply(benOrConsensusReply)
+				r.handleBenOrConsensus(benOrConsensusReply)
 				break
 
 			case infoBroadcastS := <-r.infoBroadcastChan:
@@ -522,14 +560,14 @@ func (r *Replica) registerClient(clientId uint32, writer *bufio.Writer) uint8 {
 
 	if !exists {
 		r.clientWriters[clientId] = writer
-		return TRUE
+		return True
 	}
 
 	if w == writer {
-		return TRUE
+		return True
 	}
 
-	return FALSE
+	return False
 }
 
 func (r *Replica) sendHeartbeat () {
@@ -553,22 +591,24 @@ func (r *Replica) bcastInfoBroadcast(clientReq Entry) {
 func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 	newLogEntry := Entry{
 		Data: propose.Command,
-		SenderId: r.Id,
+		ReceiverId: r.Id,
 		// Term: int32(r.currentTerm),
 		// Index: int32(len(r.log)),
 		Term: -1,
 		Index: -1,
 		Timestamp: r.currentTimer.UnixNano(),
 		FromLeader: False,
-		}
+	}
+	
+	uniq := UniqueCommand{receiverId: r.Id, time: newLogEntry.Timestamp}
+	r.seenEntries.add(uniq)
+
+	r.addNewEntry(newLogEntry)
 
 	if r.isLeader {
-		r.log = append(r.log, newLogEntry)
-		// if r.benOrIndex == len(r.log) { r.benOrIndex++ }
 		r.bcastReplicateEntries()
 	} else {
 		r.bcastInfoBroadcast(newLogEntry)
-		r.pq.push(newLogEntry)
 	}
 }
 
@@ -578,18 +618,14 @@ func (r *Replica) handleInfoBroadcast(rpc *InfoBroadcast) {
 		r.isLeader = false
 	}
 
+	uniq := UniqueCommand{receiverId: rpc.ClientReq.ReceiverId, time: rpc.ClientReq.Timestamp}
+	r.seenEntries.add(uniq)
+
 	args := &InfoBroadcastReply{
 		SenderId: r.Id, Term: int32(r.currentTerm)}
 	r.SendMsg(rpc.SenderId, r.infoBroadcastRPC, args)
 
-	if r.isLeader {
-		newLogEntry := rpc.ClientReq
-		newLogEntry.Term = int32(r.currentTerm)
-		newLogEntry.Index = int32(len(r.log))
-		r.log = append(r.log, newLogEntry)
-	} else {
-		r.pq.push(rpc.ClientReq)
-	}
+	r.addNewEntry(rpc.ClientReq)
 	return
 }
 
