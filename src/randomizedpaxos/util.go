@@ -21,9 +21,9 @@ func max(a, b int) int {
 }
 
 func (r *Replica) benOrRunning() bool {
-	return (r.benOrState.benOrStatus == Broadcasting || 
-		r.benOrState.benOrStatus == StageOne || 
-		r.benOrState.benOrStatus == StageTwo)
+	return (r.benOrState.benOrStage == Broadcasting || 
+		r.benOrState.benOrStage == StageOne || 
+		r.benOrState.benOrStage == StageTwo)
 }
 
 func (r *Replica) addNewEntry(newLogEntry Entry) {

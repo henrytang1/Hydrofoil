@@ -99,9 +99,9 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 					continue
 				}
 
-				if r.benOrState.benOrStatus == Stopped {
+				if r.benOrState.benOrStage == Stopped {
 					// don't need to do anything else
-				} else if r.benOrState.benOrStatus == Broadcasting {
+				} else if r.benOrState.benOrStage == Broadcasting {
 					r.benOrState.biasedCoin = true
 				} else { // r.benOrStatus == BenOrRunning
 					// can't do anything here
@@ -122,7 +122,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 	if benOrIndexChanged {
 		r.benOrIndex = newCommitPoint+1
-		r.benOrState.benOrStatus = Stopped
+		r.benOrState.benOrStage = Stopped
 		r.benOrState.biasedCoin = false
 		if (r.benOrIndex < len(r.log)) {
 			r.log[r.benOrIndex].BenOrActive = True

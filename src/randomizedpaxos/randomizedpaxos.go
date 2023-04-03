@@ -95,10 +95,10 @@ const BATCH_INTERVAL = 100 * time.Microsecond
 // const TRUE = uint8(1)
 // const FALSE = uint8(0)
 
-type RPCCounter struct {
-	term	int
-	count	int
-}
+// type RPCCounter struct {
+// 	term	int
+// 	count	int
+// }
 
 type Set struct {
 	m map[UniqueCommand]bool
@@ -109,7 +109,7 @@ func newSet() *Set {
 }
 
 func (s *Set) add(item UniqueCommand) {
-	s.m[item] = true
+	s.m[item] = false
 }
 
 func (s *Set) remove(item UniqueCommand) {
@@ -119,6 +119,23 @@ func (s *Set) remove(item UniqueCommand) {
 func (s *Set) contains(item UniqueCommand) bool {
 	_, ok := s.m[item]
 	return ok
+}
+
+func (s *Set) commit(item UniqueCommand) {
+	s.m[item] = true
+}
+
+func (s *Set) isCommitted(item UniqueCommand) bool {
+	if _, ok := s.m[item]; !ok {
+		return false
+	}
+	return s.m[item]
+}
+
+func (s *Set) commitSlice(items []UniqueCommand) {
+	for _, item := range items {
+		s.commit(item)
+	}
 }
 
 type Replica struct {
@@ -280,7 +297,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		pq: newExtendedPriorityQueue(),
 		seenEntries: newSet(),
 		benOrState: BenOrState{
-			benOrStatus: Stopped,
+			benOrStage: Stopped,
 			benOrIteration: 0,
 			benOrPhase: 0,
 
@@ -429,6 +446,7 @@ func (r *Replica) run() {
 				return matchIndices[i].Idx > matchIndices[j].Idx
 			})
 
+			// TODO: figure out if this execution procedure actually makes any sense and how to capture it
 			// Execution of the leader's state machine
 			for i := r.lastApplied + 1; i <= commitIndices; i++ {
 				if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
