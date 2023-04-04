@@ -15,11 +15,6 @@ import (
 	"time"
 )
 
-// const (
-// 	Zero int = iota
-// 	One
-// 	Unknown
-// )
 type Entry = randomizedpaxosproto.Entry
 type ReplicateEntries = randomizedpaxosproto.ReplicateEntries
 type ReplicateEntriesReply = randomizedpaxosproto.ReplicateEntriesReply
@@ -33,18 +28,6 @@ type GetCommittedData = randomizedpaxosproto.GetCommittedData
 type GetCommittedDataReply = randomizedpaxosproto.GetCommittedDataReply
 type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
 type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
-
-// type BenOrConsensus struct {
-// 	SenderId		   				int32
-// 	Term							int32
-// 	Index                           int32
-// 	Iteration						int32 // iteration
-// 	Phase							int32
-// 	Vote							int32
-// 	MajRequest						Entry
-// 	LeaderRequest					Entry
-// 	EntryType						int32 // 0 or 1 depending on BenOr stage
-//     }
 
 type BenOrBroadcastMsg interface {
 	GetSenderId() int32
@@ -104,8 +87,8 @@ type Set struct {
 	m map[UniqueCommand]bool
 }
 
-func newSet() *Set {
-	return &Set{make(map[UniqueCommand]bool)}
+func newSet() Set {
+	return Set{make(map[UniqueCommand]bool)}
 }
 
 func (s *Set) add(item UniqueCommand) {
@@ -180,8 +163,8 @@ type Replica struct {
 	benOrResendTimeout		int
 	currentTerm			int
 	log				[]Entry
-	pq				*ExtendedPriorityQueue // to be fixed
-	seenEntries			*Set
+	pq				ExtendedPriorityQueue // to be fixed
+	seenEntries			Set
 
 	benOrState			BenOrState
 	benOrIndex			int
@@ -325,18 +308,24 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		votedFor: -1,
 		requestVoteEntries: make([]Entry, 0),
 		clientWriters: make(map[uint32]*bufio.Writer),
-		heartbeatTimer: nil,
-		electionTimer: nil,
-		benOrStartWaitTimer: nil,
-		benOrResendTimer: nil,
+		heartbeatTimer: time.NewTimer(0),
+		electionTimer: time.NewTimer(0),
+		benOrStartWaitTimer: time.NewTimer(0),
+		benOrResendTimer: time.NewTimer(0),
 	}
 
-	r.IsProduction = isProduction
+	// initialize these timers, since otherwise calling timer.Reset() on them will panic
+	<-r.heartbeatTimer.C
+	<-r.electionTimer.C
+	<-r.benOrStartWaitTimer.C
+	<-r.benOrResendTimer.C
 
 	r.Durable = durable
+	r.TestingState.IsProduction = isProduction
+
 	r.entries[0] = Entry{
 		Data: state.Command{},
-		ReceiverId: -1,
+		SenderId: -1,
 		Term: -1,
 		Index: 0,
 		BenOrActive: False,
@@ -346,7 +335,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 
 	r.entries[1] = Entry{
 		Data: state.Command{},
-		ReceiverId: -1,
+		SenderId: -1,
 		Term: -1,
 		Index: 1,
 		BenOrActive: True,
@@ -401,9 +390,13 @@ func (r *Replica) clock() {
 	}
 }
 
+func (r *Replica) runReplica() {
+	go r.runInNewProcess()
+}
+
 /* Main event processing loop */
-func (r *Replica) run() {
-	if (r.IsProduction) { 
+func (r *Replica) runInNewProcess() {
+	if (r.TestingState.IsProduction) { 
 		r.ConnectToPeers()
 
 		dlog.Println("Waiting for client connections")
@@ -590,7 +583,7 @@ func (r *Replica) registerClient(clientId uint32, writer *bufio.Writer) uint8 {
 
 func (r *Replica) sendHeartbeat () {
 	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
-	r.setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
+	setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 	r.bcastReplicateEntries()
 }
 
@@ -609,7 +602,7 @@ func (r *Replica) bcastInfoBroadcast(clientReq Entry) {
 func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 	newLogEntry := Entry{
 		Data: propose.Command,
-		ReceiverId: r.Id,
+		SenderId: r.Id,
 		// Term: int32(r.currentTerm),
 		// Index: int32(len(r.log)),
 		Term: -1,
@@ -618,7 +611,7 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 		FromLeader: False,
 	}
 	
-	uniq := UniqueCommand{receiverId: r.Id, time: newLogEntry.Timestamp}
+	uniq := UniqueCommand{senderId: r.Id, time: newLogEntry.Timestamp}
 	r.seenEntries.add(uniq)
 
 	r.addNewEntry(newLogEntry)
@@ -636,7 +629,7 @@ func (r *Replica) handleInfoBroadcast(rpc *InfoBroadcast) {
 		r.isLeader = false
 	}
 
-	uniq := UniqueCommand{receiverId: rpc.ClientReq.ReceiverId, time: rpc.ClientReq.Timestamp}
+	uniq := UniqueCommand{senderId: rpc.ClientReq.SenderId, time: rpc.ClientReq.Timestamp}
 	r.seenEntries.add(uniq)
 
 	args := &InfoBroadcastReply{
@@ -652,9 +645,9 @@ func (r *Replica) handleInfoBroadcastReply (rpc *InfoBroadcastReply) {
 		r.currentTerm = int(rpc.Term)
 
 		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
+			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 		r.isLeader = false
 		r.votesReceived = 0

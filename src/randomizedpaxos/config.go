@@ -19,21 +19,21 @@ type network struct {
 // }
 
 func (cfg *config) Connect(i, j int) {
-	cfg.replicas[i].IsConnected.Mu.Lock()
-	cfg.replicas[j].IsConnected.Mu.Lock()
-	cfg.replicas[i].IsConnected.Connected[j] = true
-	cfg.replicas[j].IsConnected.Connected[i] = true
-	cfg.replicas[i].IsConnected.Mu.Unlock()
-	cfg.replicas[j].IsConnected.Mu.Unlock()
+	cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
+	cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
+	cfg.replicas[i].TestingState.IsConnected.Connected[j] = true
+	cfg.replicas[j].TestingState.IsConnected.Connected[i] = true
+	cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
+	cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
 }
 
 func (cfg *config) Disconnect(i, j int) {
-	cfg.replicas[i].IsConnected.Mu.Lock()
-	cfg.replicas[j].IsConnected.Mu.Lock()
-	cfg.replicas[i].IsConnected.Connected[j] = false
-	cfg.replicas[j].IsConnected.Connected[i] = false
-	cfg.replicas[i].IsConnected.Mu.Unlock()
-	cfg.replicas[j].IsConnected.Mu.Unlock()
+	cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
+	cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
+	cfg.replicas[i].TestingState.IsConnected.Connected[j] = false
+	cfg.replicas[j].TestingState.IsConnected.Connected[i] = false
+	cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
+	cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
 }
 
 func MakeNetwork(n int) *network {

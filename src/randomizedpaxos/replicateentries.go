@@ -42,9 +42,9 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		r.currentTerm = int(rpc.Term)
 
 		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
+			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 		r.isLeader = false
 	}
@@ -161,9 +161,9 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 		r.currentTerm = int(rpc.Term)
 
 		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
+			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 		r.isLeader = false
 		r.votesReceived = 0

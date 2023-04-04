@@ -44,6 +44,16 @@ type GetView struct {
 	Reply *bufio.Writer
 }
 
+type IsConnectedStatus struct {
+	Mu 		sync.Mutex
+	Connected	map[int]bool
+}
+
+type Testing struct { // for testing purposes only
+	IsProduction bool
+	IsConnected  IsConnectedStatus
+}
+
 type Replica struct {
 	N            int        // total number of replicas
 	Id           int32      // the ID of the current replica
@@ -82,13 +92,7 @@ type Replica struct {
 
 	GetViewChan chan *GetView
 
-	IsProduction bool
-	IsConnected  IsConnectedStatus // for testing purposes
-}
-
-type IsConnectedStatus struct {
-	Mu 			sync.Mutex
-	Connected	map[int]bool
+	TestingState Testing
 }
 
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool) *Replica {
@@ -118,14 +122,13 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		make(chan bool, 1200),
 		make(chan *Client, CHAN_BUFFER_SIZE),
 		make(chan *GetView, CHAN_BUFFER_SIZE),
-		true,
-		IsConnectedStatus{Connected: make(map[int]bool)},
+		Testing{true, IsConnectedStatus{Connected: make(map[int]bool)}},
 	}
 
 	for i := 0; i < r.N; i++ {
-		r.IsConnected.Mu.Lock()
-		r.IsConnected.Connected[i] = true
-		r.IsConnected.Mu.Unlock()
+		r.TestingState.IsConnected.Mu.Lock()
+		r.TestingState.IsConnected.Connected[i] = true
+		r.TestingState.IsConnected.Mu.Unlock()
 	}
 
 	var err error
@@ -586,7 +589,7 @@ func (r *Replica) RegisterRPC(msgObj fastrpc.Serializable, notify chan fastrpc.S
 }
 
 func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
-	if (!r.IsProduction && !r.IsConnected.Connected[int(peerId)]) {
+	if (!r.TestingState.IsProduction && !r.TestingState.IsConnected.Connected[int(peerId)]) {
 		return
 	}
 	w := r.PeerWriters[peerId]

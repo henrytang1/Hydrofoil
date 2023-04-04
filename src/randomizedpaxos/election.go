@@ -9,7 +9,7 @@ import (
 
 func (r *Replica) startElection() {
 	timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-	r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+	setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 
 	r.currentTerm++
 	r.votedFor = int(r.Id)
@@ -76,9 +76,9 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 		r.currentTerm = int(rpc.Term)
 		
 		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
+			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 		r.isLeader = false
 		r.votesReceived = 0
@@ -168,7 +168,7 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 		}
 
 		timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
-		r.resetTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
+		resetTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 		// send out replicate entries rpcs
 		r.bcastReplicateEntries()
 	}

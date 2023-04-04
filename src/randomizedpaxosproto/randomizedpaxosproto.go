@@ -17,7 +17,7 @@ const (
 
 type Entry struct {
     Data 	        state.Command
-    ReceiverId      int32
+    SenderId        int32
     Term 	        int32
     Index	        int32
     BenOrActive     uint8 // bool

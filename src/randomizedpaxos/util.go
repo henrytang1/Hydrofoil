@@ -42,11 +42,7 @@ func (r *Replica) addNewEntry(newLogEntry Entry) {
 }
 
 // called when the timer has not yet fired
-func (r *Replica) resetTimer(t *time.Timer, d time.Duration) {
-	if t == nil {
-		t = time.NewTimer(d)
-		return
-	}
+func resetTimer(t *time.Timer, d time.Duration) {
 	if !t.Stop() {
 		<-t.C
 	}
@@ -54,15 +50,11 @@ func (r *Replica) resetTimer(t *time.Timer, d time.Duration) {
 }
 
 // called when the timer has already fired
-func (r *Replica) setTimer(t *time.Timer, d time.Duration) {
-	if t == nil {
-		t = time.NewTimer(d)
-		return
-	}
+func setTimer(t *time.Timer, d time.Duration) {
 	t.Reset(d)
 }
 
-func (r *Replica) clearTimer(t *time.Timer) {
+func clearTimer(t *time.Timer) {
 	if !t.Stop() {
 		<-t.C
 	}
@@ -71,7 +63,7 @@ func (r *Replica) clearTimer(t *time.Timer) {
 func benOrUncommittedLogEntry(idx int) randomizedpaxosproto.Entry {
 	return randomizedpaxosproto.Entry{
 		Data: state.Command{},
-		ReceiverId: -1,
+		SenderId: -1,
 		Term: -1, // term -1 means that this is a Ben-Or+ entry that hasn't yet committed
 		Index: int32(idx),
 		BenOrActive: True,

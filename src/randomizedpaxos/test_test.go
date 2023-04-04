@@ -13,6 +13,34 @@ import (
 const RaftElectionTimeout = 1000 * time.Millisecond
 
 func TestInitialElection(t *testing.T) {
+	replica := NewReplica(0, make([]string, 3), false, false, false, false, false)
+
+	// fmt.Println(replica.heartbeatTimer)
+	// replica.heartbeatTimer = time.NewTimer(time.Duration(6000) * time.Millisecond)
+	setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
+
+	<-replica.heartbeatTimer.C
+	fmt.Println("hello")
+
+
+
+	// asdf := newExtendedPriorityQueue()
+
+	// k := Entry{Data: state.Command{}, SenderId: 1, Timestamp: 4}
+
+	// asdf.push(k)
+	// asdf.push(Entry{Data: state.Command{}, SenderId: 1, Timestamp: 5})
+	// asdf.push(Entry{Data: state.Command{}, SenderId: 2, Timestamp: 3})
+
+	// asdf.remove(k)
+	// fmt.Println(asdf.pop())
+	// fmt.Println(asdf.pop())
+
+	// fmt.Println(asdf.isEmpty())
+	// // fmt.Println(asdf.pop())
+
+	// fmt.Println(asdf.isEmpty())
+
 
 	// r1, w1 := io.Pipe()
 	// r2, w2 := io.Pipe()

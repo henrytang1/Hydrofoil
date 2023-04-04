@@ -25,14 +25,9 @@ type BenOrState struct {
 
 /************************************** Ben Or Braodcast **********************************************/
 func (r *Replica) startBenOrPlus () {
-	// timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	// r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
-
-	// if r.benOrRunning() {
-	// 	return
-	// }
 	r.startBenOrIteration(true)
 }
+
 
 func (r *Replica) startBenOrIteration(startFromBeginning bool) {
 	if startFromBeginning {
@@ -79,15 +74,15 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 		r.currentTerm = int(rpc.GetTerm())
 
 		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
+			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 
 		r.isLeader = false
 	}
 
-	cmd := UniqueCommand{receiverId: rpc.GetClientReq().ReceiverId, time: rpc.GetClientReq().Timestamp}
+	cmd := UniqueCommand{senderId: rpc.GetClientReq().SenderId, time: rpc.GetClientReq().Timestamp}
 	if !r.seenEntries.contains(cmd) {
 		r.addNewEntry(rpc.GetClientReq())
 	}
@@ -118,22 +113,6 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 		if !r.isLeader {
 			r.pq.push(r.benOrState.benOrBroadcastRequest) // add own value back
 		}
-		// type BenOrState struct {
-		// 	benOrStatus				uint8
-		// 	benOrIteration				int
-		// 	benOrPhase				int
-		
-		// 	benOrVote				int
-		// 	benOrMajRequest				Entry
-		
-		// 	// benOrStage				uint8
-		// 	benOrBroadcastRequest 			Entry
-		// 	// benOrWaitingForIndex			int
-		// 	benOrRepliesReceived			int
-		// 	benOrBroadcastMessages			[]BenOrBroadcastMsg
-		// 	benOrConsensusMessages			[]BenOrConsensusMsg
-		// 	biasedCoin				bool
-		// }
 
 		r.benOrState = BenOrState{
 			benOrStage: Broadcasting,
@@ -149,26 +128,6 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 		}
 
 		r.startBenOrIteration(false)
-
-		// var request Entry
-		// if (r.log[r.benOrIndex].Term != -1) {
-		// 	request = r.log[r.benOrIndex]
-		// } else if (!r.pq.isEmpty()) {
-		// 	request = r.pq.pop()
-		// } else {
-		// 	log.Fatal("pq shouldn't be empty")
-		// 	return
-		// }
-
-		// r.benOrState.benOrBroadcastRequest = request
-
-		// if t, ok := rpc.(*BenOrBroadcast); ok {
-		// 	args := &BenOrBroadcastReply{
-		// 		SenderId: r.Id, Term: int32(r.currentTerm), Index: t.Index, Iteration: int32(r.benOrIndex), ClientReq: request,
-		// 	}
-		// 	r.SendMsg(rpc.GetSenderId(), r.benOrBroadcastReplyRPC, args)
-		// }
-		// }
 		return
 	}
 
@@ -214,7 +173,7 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 // only called if actually need to run benOr at this index
 func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
+	setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
 
 	var foundMajRequest int32;
 	var majRequest Entry;
@@ -235,7 +194,7 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 			if msgs[i].GetClientReq().Timestamp != msgs[j].GetClientReq().Timestamp {
 				return msgs[i].GetClientReq().Timestamp < msgs[j].GetClientReq().Timestamp
 			}
-			return msgs[i].GetClientReq().ReceiverId < msgs[j].GetClientReq().ReceiverId
+			return msgs[i].GetClientReq().SenderId < msgs[j].GetClientReq().SenderId
 		})
 
 		foundMajRequest = int32(Vote0)
@@ -249,7 +208,7 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 
 		for i := 0; i < n; i++ {
 			if msgs[i].GetIndex() == index && msgs[i].GetClientReq().Timestamp == timestamp && 
-				msgs[i].GetClientReq().ReceiverId == senderId {
+				msgs[i].GetClientReq().SenderId == senderId {
 				counter++
 				if msgs[i].GetClientReq().Term > curRequest.Term {
 					curRequest = msgs[i].GetClientReq()
@@ -258,7 +217,7 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 				counter = 1
 				index = msgs[i].GetIndex()
 				timestamp = msgs[i].GetClientReq().Timestamp
-				senderId = msgs[i].GetClientReq().ReceiverId
+				senderId = msgs[i].GetClientReq().SenderId
 				curRequest = msgs[i].GetClientReq()
 			}
 			
@@ -267,14 +226,6 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 				majRequest = curRequest
 				break
 			}
-			// if i + r.N/2 < n && msgs[i].Index == msgs[i+r.N/2].Index &&
-			// msgs[i].ClientReq.Timestamp == msgs[i+r.N/2].ClientReq.Timestamp && 
-			// msgs[i].ClientReq.SenderId == msgs[i+r.N/2].ClientReq.SenderId {
-				
-			// 	majRequest = msgs[i].ClientReq
-			// 	foundMajRequest = int32(Vote1)
-			// 	break
-			// }
 		}
 
 		r.benOrState.benOrVote = int(foundMajRequest)
@@ -307,7 +258,7 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 
 func (r *Replica) startBenOrConsensusStage2(initialize bool) {
 	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
+	setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
 
 	var vote int32
 	var majRequest Entry;
@@ -369,9 +320,9 @@ func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 		r.currentTerm = int(rpc.GetTerm())
 
 		if (r.isLeader) {
-			r.clearTimer(r.heartbeatTimer)
+			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			r.setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 
 		r.isLeader = false
@@ -566,11 +517,11 @@ func (r *Replica) handleBenOrStageEnd() {
 		r.benOrIndex = r.preparedIndex
 
 		// TODO: close retry channel
-		r.clearTimer(r.benOrResendTimer)
+		clearTimer(r.benOrResendTimer)
 
 		// restart BenOr Timer
 		timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-		r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
+		setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
 
 		return
 	} else if numVotes[Vote0] > r.N/2 {
@@ -621,7 +572,7 @@ func (r *Replica) handleBenOrStageEnd() {
 
 func (r *Replica) resendBenOrTimer() {
 	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-	r.setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
+	setTimer(r.benOrResendTimer, time.Duration(timeout)*time.Millisecond)
 
 	if r.benOrState.benOrStage == Broadcasting {
 		args := &BenOrBroadcast{

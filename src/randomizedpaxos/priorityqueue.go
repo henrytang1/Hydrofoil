@@ -9,7 +9,7 @@ import (
 )
 
 type UniqueCommand struct {
-	receiverId 	int32
+	senderId 	int32
 	// term 	 int32
 	// index	 int32
 	time	 	int64
@@ -32,7 +32,7 @@ func (extPQ *ExtendedPriorityQueue) push(entry randomizedpaxosproto.Entry) {
 	}
 
 	req := UniqueCommand {
-		receiverId: entry.ReceiverId,
+		senderId: entry.SenderId,
 		// term: entry.Term,
 		// index: entry.Index,
 		time: entry.Timestamp,
@@ -40,16 +40,16 @@ func (extPQ *ExtendedPriorityQueue) push(entry randomizedpaxosproto.Entry) {
 	
 	if val, ok := extPQ.itemLoc[req]; ok {
 		if cmpItem(item, val) {
-			heap.Remove(&extPQ.pq, val.heapIndex)
-			extPQ.pq.Push(item)
-			extPQ.itemLoc[req] = item
+			heap.Remove(&extPQ.pq, val.heapIndex)			
 		}
 	}
+	heap.Push(&extPQ.pq, item)
+	extPQ.itemLoc[req] = item
 }
 
 func (extPQ *ExtendedPriorityQueue) remove(entry randomizedpaxosproto.Entry) {
 	req := UniqueCommand {
-		receiverId: entry.ReceiverId,
+		senderId: entry.SenderId,
 		// term: entry.Term,
 		// index: entry.Index,
 		time: entry.Timestamp,
@@ -65,7 +65,7 @@ func (extPQ *ExtendedPriorityQueue) pop() randomizedpaxosproto.Entry {
 	item := heap.Pop(&extPQ.pq).(*Item)
 
 	req := UniqueCommand {
-		receiverId: item.entry.ReceiverId,
+		senderId: item.entry.SenderId,
 		// term: item.entry.Term,
 		// index: item.entry.Index,
 		time: item.entry.Timestamp,
@@ -100,12 +100,12 @@ func (extPQ *ExtendedPriorityQueue) isEmpty() bool {
 	return len(extPQ.pq) == 0
 }
 
-func newExtendedPriorityQueue() *ExtendedPriorityQueue {
+func newExtendedPriorityQueue() ExtendedPriorityQueue {
 	var extPQ ExtendedPriorityQueue
 	extPQ.pq = make(PriorityQueue, 0)
 	extPQ.itemLoc = make(map[UniqueCommand]*Item, 0)
 	heap.Init(&extPQ.pq)
-	return &extPQ
+	return extPQ
 }
 
 // An Item is something we manage in a priority queue.
@@ -133,7 +133,7 @@ func cmpEntry(a, b randomizedpaxosproto.Entry) bool {
 	if a.Timestamp != b.Timestamp {
 		return a.Timestamp < b.Timestamp
 	}
-	return a.ReceiverId < b.ReceiverId
+	return a.SenderId < b.SenderId
 	// if a.Term != b.Term {
 	// 	return a.Term > b.Term
 	// }
