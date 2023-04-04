@@ -70,16 +70,8 @@ func (r *Replica) startBenOrIteration(startFromBeginning bool) {
 
 
 func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
-	if int(rpc.GetTerm()) > r.currentTerm {
-		r.currentTerm = int(rpc.GetTerm())
-
-		if (r.isLeader) {
-			clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-
-		r.isLeader = false
+	if (!r.handleIncomingRPCTerm(int(rpc.GetTerm()))) {
+		return // TODO: send reply?
 	}
 
 	cmd := UniqueCommand{senderId: rpc.GetClientReq().SenderId, time: rpc.GetClientReq().Timestamp}
@@ -110,7 +102,7 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 	}
 
 	if r.benOrState.benOrIteration < int(rpc.GetIteration()) {
-		if !r.isLeader {
+		if !r.leaderState.isLeader {
 			r.pq.push(r.benOrState.benOrBroadcastRequest) // add own value back
 		}
 
@@ -316,18 +308,10 @@ func (r *Replica) startBenOrConsensusStage2(initialize bool) {
 
 
 func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
-	if (int(rpc.GetTerm()) > r.currentTerm) { // update term but don't return
-		r.currentTerm = int(rpc.GetTerm())
-
-		if (r.isLeader) {
-			clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-
-		r.isLeader = false
+	if (!r.handleIncomingRPCTerm(int(rpc.GetTerm()))) {
+		return // TODO: send reply?
 	}
-
+	
 	if int(rpc.GetIndex()) < r.benOrIndex {
 		args := &GetCommittedDataReply{
 			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), 
@@ -358,7 +342,7 @@ func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 	}
 
 	if r.benOrState.benOrIteration < int(rpc.GetIteration()) {
-		if !r.isLeader {
+		if !r.leaderState.isLeader {
 			r.pq.push(r.benOrState.benOrBroadcastRequest) // add own value back
 		}
 

@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+type CandidateState struct {
+	votesReceived			int
+	votedFor			int
+	requestVoteEntries		[]Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
+}
+
 /************************************** Election **********************************************/
 
 func (r *Replica) startElection() {
@@ -12,9 +18,9 @@ func (r *Replica) startElection() {
 	setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 
 	r.currentTerm++
-	r.votedFor = int(r.Id)
-	r.votesReceived = 1 // itself
-	r.requestVoteEntries = append(r.log[r.preparedIndex+1:], r.pq.extractList()...)
+	r.candidateState.votedFor = int(r.Id)
+	r.candidateState.votesReceived = 1 // itself
+	r.candidateState.requestVoteEntries = append(r.log[r.preparedIndex+1:], r.pq.extractList()...)
 
 	args := &RequestVote{
 		SenderId: r.Id,
@@ -54,18 +60,18 @@ func (r *Replica) handleRequestVote (rpc *RequestVote) {
 		return
 	}
 
-	if rpc.Term == int32(r.currentTerm) && r.votedFor != -1 {
+	if rpc.Term == int32(r.currentTerm) && r.candidateState.votedFor != -1 {
 		r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
 		return
 	}
 
 	if int(rpc.Term) > r.currentTerm {
 		r.currentTerm = int(rpc.Term)
-		r.isLeader = false
+		r.leaderState.isLeader = false
 	}
 
 	args.VoteGranted = True
-	r.votedFor = int(rpc.SenderId)
+	r.candidateState.votedFor = int(rpc.SenderId)
 	r.SendMsg(rpc.SenderId, r.requestVoteReplyRPC, args)
 	return
 }
@@ -75,18 +81,18 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 	if (int(rpc.Term) > r.currentTerm) {
 		r.currentTerm = int(rpc.Term)
 		
-		if (r.isLeader) {
+		if (r.leaderState.isLeader) {
 			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
 			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
-		r.isLeader = false
-		r.votesReceived = 0
-		r.requestVoteEntries = make([]Entry, 0)
+		r.leaderState.isLeader = false
+		r.candidateState.votesReceived = 0
+		r.candidateState.requestVoteEntries = make([]Entry, 0)
 		return
 	}
 	
-	if (r.isLeader || int(rpc.Term) < r.currentTerm) {
+	if (r.leaderState.isLeader || int(rpc.Term) < r.currentTerm) {
 		// ignore these entries
 		return
 	}
@@ -128,10 +134,10 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 	r.preparedIndex = newPreparedPoint
 
 	// remove elements elements that have for sure been committed from requestVoteEntries
-	r.requestVoteEntries = r.requestVoteEntries[r.preparedIndex-currentPreparedPoint:]
+	r.candidateState.requestVoteEntries = r.candidateState.requestVoteEntries[r.preparedIndex-currentPreparedPoint:]
 
 	if rpc.VoteGranted == True {
-		r.votesReceived++
+		r.candidateState.votesReceived++
 
 		start := newPreparedPoint + 1
 		if r.benOrRunning() && r.log[start].BenOrActive == True {
@@ -141,35 +147,35 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 		for i := newPreparedPoint + 1; i < firstEntryIndex + len(rpc.ReplicaEntries); i++ {
 			idxRPC := i - firstEntryIndex
 			idxRVEntries := i - newPreparedPoint - 1
-			if idxRVEntries < len(r.requestVoteEntries) {
-				if (r.requestVoteEntries[idxRVEntries].Term < rpc.ReplicaEntries[idxRPC].Term) {
-					r.requestVoteEntries[idxRVEntries] = rpc.ReplicaEntries[idxRPC]
+			if idxRVEntries < len(r.candidateState.requestVoteEntries) {
+				if (r.candidateState.requestVoteEntries[idxRVEntries].Term < rpc.ReplicaEntries[idxRPC].Term) {
+					r.candidateState.requestVoteEntries[idxRVEntries] = rpc.ReplicaEntries[idxRPC]
 				}
 			} else {
-				r.requestVoteEntries = append(r.requestVoteEntries, rpc.ReplicaEntries[idxRPC])
+				r.candidateState.requestVoteEntries = append(r.candidateState.requestVoteEntries, rpc.ReplicaEntries[idxRPC])
 				break
 			}
 		}
 	}
 
-	if (r.votesReceived > r.N/2) {
+	if (r.candidateState.votesReceived > r.N/2) {
 		// become the leader
-		r.isLeader = true
-		r.votesReceived = 0
+		r.leaderState.isLeader = true
+		r.candidateState.votesReceived = 0
 
 		// copy over values from requestVoteEntries to log
-		r.log = append(r.log[:r.preparedIndex+1], r.requestVoteEntries...)
-		r.requestVoteEntries = make([]Entry, 0)
+		r.log = append(r.log[:r.preparedIndex+1], r.candidateState.requestVoteEntries...)
+		r.candidateState.requestVoteEntries = make([]Entry, 0)
 
 		for i := 0; i < r.N ; i++ {
-			r.nextIndex[i] = len(r.log)
-			r.matchIndex[i] = 0
-			r.commitIndex[i] = 0
+			r.leaderState.repNextIndex[i] = len(r.log)
+			r.leaderState.repPreparedIndex[i] = 0
+			r.leaderState.repCommitIndex[i] = 0
 		}
 
 		timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
 		resetTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 		// send out replicate entries rpcs
-		r.bcastReplicateEntries()
+		r.broadcastReplicateEntries()
 	}
 }

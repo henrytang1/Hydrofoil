@@ -83,44 +83,6 @@ const BATCH_INTERVAL = 100 * time.Microsecond
 // 	count	int
 // }
 
-type Set struct {
-	m map[UniqueCommand]bool
-}
-
-func newSet() Set {
-	return Set{make(map[UniqueCommand]bool)}
-}
-
-func (s *Set) add(item UniqueCommand) {
-	s.m[item] = false
-}
-
-func (s *Set) remove(item UniqueCommand) {
-	delete(s.m, item)
-}
-
-func (s *Set) contains(item UniqueCommand) bool {
-	_, ok := s.m[item]
-	return ok
-}
-
-func (s *Set) commit(item UniqueCommand) {
-	s.m[item] = true
-}
-
-func (s *Set) isCommitted(item UniqueCommand) bool {
-	if _, ok := s.m[item]; !ok {
-		return false
-	}
-	return s.m[item]
-}
-
-func (s *Set) commitSlice(items []UniqueCommand) {
-	for _, item := range items {
-		s.commit(item)
-	}
-}
-
 type Replica struct {
 	*genericsmr.Replica // extends a generic Paxos replica
 
@@ -156,36 +118,33 @@ type Replica struct {
 	// benOrConsensusCounter			rpcCounter
 	// infoBroadcastCounter				rpcCounter
 
-	isLeader			bool
-	electionTimeout         	int
-	heartbeatTimeout         	int
-	benOrStartWaitTimeout		int
-	benOrResendTimeout		int
 	currentTerm			int
 	log				[]Entry
 	pq				ExtendedPriorityQueue // to be fixed
 	seenEntries			Set
 
-	benOrState			BenOrState
-	benOrIndex			int
+	benOrIndex			int // this is more related to the log, so we won't put it in BenOrState
 	preparedIndex			int // length of the log that has been prepared except for at most 1 entry that's still running benOr
-	lastApplied			int
-	entries				[]Entry
-	nextIndex			[]int
-	matchIndex			[]int // highest known prepared index for each replica
-	commitIndex			[]int // highest known commit index for each replica
+	lastApplied			int // index of last log entry applied to state machine
+
+	leaderState			LeaderState
+	benOrState			BenOrState
+	candidateState			CandidateState
+
 	currentTimer			time.Time
-	highestTimestamp		[]int64 // highest timestamp seen from each replica (used to ignore old requests)
-	votesReceived			int
-	votedFor			int
-	requestVoteEntries		[]Entry // only stores entries that we're not sure if they've already been committed when requesting a vote
+	// highestTimestamp		[]int64 // highest timestamp seen from each replica (used to ignore old requests)
 	// requestVoteBenOrIndex		int
 	// requestVotePreparedIndex		int
+
+	electionTimeout         	int
+	heartbeatTimeout         	int
+	benOrStartTimeout		int
+	benOrResendTimeout		int
 
 	clientWriters      		map[uint32]*bufio.Writer
 	heartbeatTimer			*time.Timer
 	electionTimer			*time.Timer
-	benOrStartWaitTimer		*time.Timer
+	benOrStartTimer			*time.Timer
 	benOrResendTimer		*time.Timer
 }
 
@@ -195,10 +154,10 @@ type Instance struct {
 	ballot int32
 }
 
-type Pair struct {
-	Idx  int
-	Term int
-}
+// type Pair struct {
+// 	Idx  int
+// 	Term int
+// }
 
 // UNSURE IF WE EVER NEED THIS ACTUALLY
 //append a log entry to stable storage
@@ -270,15 +229,19 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		// benOrBroadcastCounter: rpcCounter{0,0},
 		// benOrConsensusCounter: rpcCounter{0,0},
 		// infoBroadcastCounter: rpcCounter{0,0},
-		isLeader: false,
-		electionTimeout: 0, // TODO: NEED TO UPDATE THESE VALUES
-		heartbeatTimeout: 0,
-		benOrStartWaitTimeout: 0,
-		benOrResendTimeout: 0,
 		currentTerm: 0,
 		log: make([]Entry, 0),
 		pq: newExtendedPriorityQueue(),
 		seenEntries: newSet(),
+		benOrIndex: 1,
+		preparedIndex: 0,
+		lastApplied: 0, // 0 entry is already applied (it's an empty entry)
+		leaderState: LeaderState{
+			isLeader: false,
+			repNextIndex: make([]int, 0),
+			repCommitIndex: make([]int, 0),
+			repPreparedIndex: make([]int, 0),
+		},
 		benOrState: BenOrState{
 			benOrStage: Stopped,
 			benOrIteration: 0,
@@ -293,37 +256,38 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
 			biasedCoin: false,
 		},
-		benOrIndex: 1,
-		preparedIndex: 0,
-		lastApplied: 0, // 0 entry is already applied (it's an empty entry)
-		// first entry is a default useless entry (to make edge cases easier)
-		// second entry is the initial BenOr entry (but BenOr is not started yet)
-		entries: make([]Entry, 2),
-		nextIndex: make([]int, 0),
-		matchIndex: make([]int, 0),
-		commitIndex: make([]int, 0),
+		candidateState: CandidateState{
+			votesReceived: 0,
+			votedFor: -1,
+			requestVoteEntries: make([]Entry, 0),
+		},
 		currentTimer: time.Now(),
-		highestTimestamp: make([]int64, 0),
-		votesReceived: 0,
-		votedFor: -1,
-		requestVoteEntries: make([]Entry, 0),
+		// highestTimestamp: make([]int64, 0),
+
+		electionTimeout: 0, // TODO: NEED TO UPDATE THESE VALUES
+		heartbeatTimeout: 0,
+		benOrStartTimeout: 0,
+		benOrResendTimeout: 0,
+
 		clientWriters: make(map[uint32]*bufio.Writer),
 		heartbeatTimer: time.NewTimer(0),
 		electionTimer: time.NewTimer(0),
-		benOrStartWaitTimer: time.NewTimer(0),
+		benOrStartTimer: time.NewTimer(0),
 		benOrResendTimer: time.NewTimer(0),
 	}
 
 	// initialize these timers, since otherwise calling timer.Reset() on them will panic
 	<-r.heartbeatTimer.C
 	<-r.electionTimer.C
-	<-r.benOrStartWaitTimer.C
+	<-r.benOrStartTimer.C
 	<-r.benOrResendTimer.C
 
 	r.Durable = durable
 	r.TestingState.IsProduction = isProduction
 
-	r.entries[0] = Entry{
+	// first entry is a default useless entry (to make edge cases easier)
+	// second entry is the initial BenOr entry (but BenOr is not started yet)
+	r.log = append(r.log, Entry{
 		Data: state.Command{},
 		SenderId: -1,
 		Term: -1,
@@ -331,9 +295,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		BenOrActive: False,
 		Timestamp: -1,
 		FromLeader: False, // this initial entry shouldn't matter
-	}
-
-	r.entries[1] = Entry{
+	}, Entry{
 		Data: state.Command{},
 		SenderId: -1,
 		Term: -1,
@@ -341,7 +303,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		BenOrActive: True,
 		Timestamp: -1,
 		FromLeader: False,
-	}
+	})
 
 	r.replicateEntriesRPC = r.RegisterRPC(new(ReplicateEntries), r.replicateEntriesChan)
 	r.replicateEntriesReplyRPC = r.RegisterRPC(new(ReplicateEntriesReply), r.replicateEntriesReplyChan)
@@ -381,16 +343,23 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 // 	r.SendMsg(replicaId, r.infoBroadcastReplyRPC, reply)
 // }
 
-var clockChan chan bool
+// var clockChan chan bool
 
-func (r *Replica) clock() {
-	for !r.Shutdown {
-		time.Sleep(BATCH_INTERVAL)
-		clockChan <- true
-	}
-}
+// func (r *Replica) clock() {
+// 	for !r.Shutdown {
+// 		time.Sleep(BATCH_INTERVAL)
+// 		clockChan <- true
+// 	}
+// }
 
 func (r *Replica) runReplica() {
+	var timeout int
+	timeout = rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+	r.electionTimer.Reset(time.Duration(timeout) * time.Millisecond)
+
+	timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+	r.benOrStartTimer.Reset(time.Duration(timeout) * time.Millisecond)
+
 	go r.runInNewProcess()
 }
 
@@ -412,38 +381,29 @@ func (r *Replica) runInNewProcess() {
 	// 	r.IsLeader = true
 	// }
 
-	clockChan = make(chan bool, 1)
-	go r.clock()
+	// clockChan = make(chan bool, 1)
+	// go r.clock()
 
 	onOffProposeChan := r.ProposeChan
 
 	for !r.Shutdown {
-		if r.isLeader {
-			commitIndices := -1
-			matchIndices := make([]Pair, 0)
-
-			for i := 0; i < r.N; i++ {
-				idx := r.matchIndex[i]
-				term := 0
-				if idx >= 0 {
-					term = int(r.log[idx].Term)
+		if r.leaderState.isLeader {
+			preparedIndices := append(make([]int, 0, r.N), r.leaderState.repPreparedIndex...)
+			sort.Sort(sort.Reverse(sort.IntSlice(preparedIndices)))
+			r.preparedIndex = preparedIndices[r.N/2+1]
+			if r.benOrState.benOrStage == Stopped {
+				r.benOrIndex = r.preparedIndex + 1
+				if r.benOrIndex >= len(r.log) {
+					r.log = append(r.log, benOrUncommittedLogEntry(-1))
 				}
-
-				commitIndices = min(commitIndices, r.nextIndex[i]-1)
-				matchIndices = append(matchIndices, Pair{
-					Idx:  idx,
-					Term: term,
-				})
 			}
-			sort.Slice(matchIndices, func(i, j int) bool {
-				return matchIndices[i].Idx > matchIndices[j].Idx
-			})
+		}
 
-			// TODO: figure out if this execution procedure actually makes any sense and how to capture it
-			// Execution of the leader's state machine
-			for i := r.lastApplied + 1; i <= commitIndices; i++ {
-				if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
-					val := r.log[i].Data.Execute(r.State)
+		// Execution of the leader's state machine
+		for i := r.lastApplied + 1; i < r.benOrIndex; i++ {
+			if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
+				val := r.log[i].Data.Execute(r.State)
+				if (r.log[i].SenderId == r.Id) { 
 					propreply := &genericsmrproto.ProposeReplyTS{
 						OK: True,
 						CommandId: r.log[i].Data.OpId,
@@ -452,29 +412,28 @@ func (r *Replica) runInNewProcess() {
 					r.ReplyProposeTS(propreply, writer)
 				}
 			}
-
-			// Update preparedIndex
-			r.preparedIndex = matchIndices[r.N/2].Idx
 		}
+		r.lastApplied = r.benOrIndex - 1
 
 		select {
 			case client := <-r.RegisterClientIdChan:
 				r.registerClient(client.ClientId, client.Reply)
+				dlog.Printf("Client %d registering\n", client.ClientId)
 				break
 
-			case <-clockChan:
-				//activate the new proposals channel
-				onOffProposeChan = r.ProposeChan
-				break
+			// case <-clockChan:
+			// 	//activate the new proposals channel
+			// 	onOffProposeChan = r.ProposeChan
+			// 	break
 
 			case propose := <-onOffProposeChan:
 				//got a Propose from a client
 				dlog.Printf("Proposal with op %d\n", propose.Command.Op)
 				r.handlePropose(propose)
 				//deactivate the new proposals channel to prioritize the handling of protocol messages
-				if MAX_BATCH > 100 {
-					onOffProposeChan = nil
-				}
+				// if MAX_BATCH > 100 {
+				// 	onOffProposeChan = nil
+				// }
 				break
 
 			case replicateEntriesS := <-r.replicateEntriesChan:
@@ -555,11 +514,12 @@ func (r *Replica) runInNewProcess() {
 				//got an election timeout
 				r.startElection()
 			
-			case <- r.benOrStartWaitTimer.C:
+			case <- r.benOrStartTimer.C:
 				//got a benOrStartWait timeout
 				r.startBenOrPlus()
 
 			case <- r.benOrResendTimer.C:
+				//got a benOrResend timeout
 				r.resendBenOrTimer()
 		}
 	}
@@ -584,19 +544,7 @@ func (r *Replica) registerClient(clientId uint32, writer *bufio.Writer) uint8 {
 func (r *Replica) sendHeartbeat () {
 	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
 	setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
-	r.bcastReplicateEntries()
-}
-
-func (r *Replica) bcastInfoBroadcast(clientReq Entry) {
-	// r.infoBroadcastCounter = rpcCounter{r.currentTerm, r.infoBroadcastCounter.count+1}
-	for i := 0; i < r.N; i++ {
-		if int32(i) != r.Id {
-			args := &InfoBroadcast{
-				SenderId: r.Id, Term: int32(r.currentTerm), ClientReq: clientReq}
-
-			r.SendMsg(int32(i), r.infoBroadcastRPC, args)
-		}
-	}
+	r.broadcastReplicateEntries()
 }
 
 func (r *Replica) handlePropose(propose *genericsmr.Propose) {
@@ -616,41 +564,40 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 
 	r.addNewEntry(newLogEntry)
 
-	if r.isLeader {
-		r.bcastReplicateEntries()
+	if r.leaderState.isLeader {
+		r.broadcastReplicateEntries()
 	} else {
-		r.bcastInfoBroadcast(newLogEntry)
+		r.broadcastInfo(newLogEntry)
+	}
+}
+
+func (r *Replica) broadcastInfo(clientReq Entry) {
+	// r.infoBroadcastCounter = rpcCounter{r.currentTerm, r.infoBroadcastCounter.count+1}
+	for i := 0; i < r.N; i++ {
+		if int32(i) != r.Id {
+			args := &InfoBroadcast{
+				SenderId: r.Id, Term: int32(r.currentTerm), ClientReq: clientReq}
+
+			r.SendMsg(int32(i), r.infoBroadcastRPC, args)
+		}
 	}
 }
 
 func (r *Replica) handleInfoBroadcast(rpc *InfoBroadcast) {
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-		r.isLeader = false
-	}
+	r.handleIncomingRPCTerm(int(rpc.Term))
 
 	uniq := UniqueCommand{senderId: rpc.ClientReq.SenderId, time: rpc.ClientReq.Timestamp}
 	r.seenEntries.add(uniq)
 
+	r.addNewEntry(rpc.ClientReq)
+
 	args := &InfoBroadcastReply{
 		SenderId: r.Id, Term: int32(r.currentTerm)}
 	r.SendMsg(rpc.SenderId, r.infoBroadcastRPC, args)
-
-	r.addNewEntry(rpc.ClientReq)
 	return
 }
 
 func (r *Replica) handleInfoBroadcastReply (rpc *InfoBroadcastReply) {
-	if (int(rpc.Term) > r.currentTerm) {
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-		r.isLeader = false
-		r.votesReceived = 0
-	}
+	r.handleIncomingRPCTerm(int(rpc.Term))
 	return
 }

@@ -1,6 +1,7 @@
 package randomizedpaxos
 
 import (
+	"dlog"
 	"fmt"
 	"testing"
 	"time"
@@ -21,6 +22,8 @@ func TestInitialElection(t *testing.T) {
 
 	<-replica.heartbeatTimer.C
 	fmt.Println("hello")
+
+	dlog.Println("TEST")
 
 
 

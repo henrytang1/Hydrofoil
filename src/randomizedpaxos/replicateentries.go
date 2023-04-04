@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+type LeaderState struct {
+	isLeader			bool
+	repNextIndex			[]int // next index to send to each replica
+	repCommitIndex			[]int // highest known commit index for each replica
+	repPreparedIndex		[]int // highest known prepared index for each replica
+}
+
 func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	replicaEntries := make([]Entry, 0)
 	if int(rpc.LeaderPreparedIndex)+1 < len(r.log) {
@@ -41,19 +48,19 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	if int(rpc.Term) > r.currentTerm {
 		r.currentTerm = int(rpc.Term)
 
-		if (r.isLeader) {
+		if (r.leaderState.isLeader) {
 			clearTimer(r.heartbeatTimer)
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
 			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
-		r.isLeader = false
+		r.leaderState.isLeader = false
 	}
 
 	// a term of -1 means that the entry is committed using Ben-Or+
-	// we assume that r.entries[rpc.PrevLogIndex] is not currently running Ben-Or+
+	// we assume that r.log[rpc.PrevLogIndex] is not currently running Ben-Or+
 	// reject if the previous term doesn't match
 	// if entry at previous term is running Ben-Or+, then we must reject and ask the leader to send over another entry
-	if r.entries[rpc.PrevLogIndex].Term != rpc.PrevLogTerm || r.entries[rpc.PrevLogIndex].BenOrActive == True {
+	if r.log[rpc.PrevLogIndex].Term != rpc.PrevLogTerm || r.log[rpc.PrevLogIndex].BenOrActive == True {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
 	}
@@ -157,22 +164,15 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 }
 
 func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
-	if int(rpc.Term) > r.currentTerm {
-		r.currentTerm = int(rpc.Term)
-
-		if (r.isLeader) {
-			clearTimer(r.heartbeatTimer)
-			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-		}
-		r.isLeader = false
-		r.votesReceived = 0
+	if (!r.handleIncomingRPCTerm(int(rpc.GetTerm()))) {
+		return // TODO: send reply?
 	}
 
-	if r.isLeader || int(rpc.Term) < r.currentTerm {
-		// ignore these entries
-		return
-	}
+	// if r.leaderState.isLeader || int(rpc.Term) < r.currentTerm {
+	// 	// ignore these entries
+	// 	return
+	// }
+
 
 	// currentCommitPoint := r.benOrIndex-1
 	// currentPreparedPoint := r.preparedIndex
@@ -207,27 +207,27 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 		}
 	}
 
-	r.commitIndex[rpc.SenderId] = max(r.commitIndex[rpc.SenderId], int(rpc.ReplicaBenOrIndex))-1
-	r.matchIndex[rpc.SenderId] = max(r.matchIndex[rpc.SenderId], int(rpc.ReplicaPreparedIndex))
+	r.leaderState.repCommitIndex[rpc.SenderId] = max(r.leaderState.repCommitIndex[rpc.SenderId], int(rpc.ReplicaBenOrIndex))-1
+	r.leaderState.repPreparedIndex[rpc.SenderId] = max(r.leaderState.repPreparedIndex[rpc.SenderId], int(rpc.ReplicaPreparedIndex))
 
 	if rpc.Success == True {
-		r.nextIndex[rpc.SenderId] = r.commitIndex[rpc.SenderId] + 1
+		r.leaderState.repNextIndex[rpc.SenderId] = r.leaderState.repCommitIndex[rpc.SenderId] + 1
 	} else {
-		r.nextIndex[rpc.SenderId] = int(rpc.RequestedIndex)
+		r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.RequestedIndex)
 		// TODO: can optimize this out
 	}
 }
 
 /************************************** Replicate Entries **********************************************/
 
-func (r *Replica) bcastReplicateEntries() {
+func (r *Replica) broadcastReplicateEntries() {
 	// r.replicateEntriesCounter = rpcCounter{r.currentTerm, r.replicateEntriesCounter.count+1}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
 			args := &ReplicateEntries{
 				SenderId: r.Id, Term: int32(r.currentTerm),
-				PrevLogIndex: int32(r.nextIndex[i]-1), PrevLogTerm: int32(r.log[r.nextIndex[i]-1].Term),
-				Entries: r.log[r.nextIndex[i]:], LeaderBenOrIndex: int32(r.benOrIndex), LeaderPreparedIndex: int32(r.preparedIndex)}
+				PrevLogIndex: int32(r.leaderState.repNextIndex[i]-1), PrevLogTerm: int32(r.log[r.leaderState.repNextIndex[i]-1].Term),
+				Entries: r.log[r.leaderState.repNextIndex[i]:], LeaderBenOrIndex: int32(r.benOrIndex), LeaderPreparedIndex: int32(r.preparedIndex)}
 
 			r.SendMsg(int32(i), r.replicateEntriesRPC, args)
 		}

@@ -1,10 +1,49 @@
 package randomizedpaxos
 
 import (
+	"math/rand"
 	"randomizedpaxosproto"
 	"state"
 	"time"
 )
+
+type Set struct {
+	m map[UniqueCommand]bool
+}
+
+func newSet() Set {
+	return Set{make(map[UniqueCommand]bool)}
+}
+
+func (s *Set) add(item UniqueCommand) {
+	s.m[item] = false
+}
+
+func (s *Set) remove(item UniqueCommand) {
+	delete(s.m, item)
+}
+
+func (s *Set) contains(item UniqueCommand) bool {
+	_, ok := s.m[item]
+	return ok
+}
+
+func (s *Set) commit(item UniqueCommand) {
+	s.m[item] = true
+}
+
+func (s *Set) isCommitted(item UniqueCommand) bool {
+	if _, ok := s.m[item]; !ok {
+		return false
+	}
+	return s.m[item]
+}
+
+func (s *Set) commitSlice(items []UniqueCommand) {
+	for _, item := range items {
+		s.commit(item)
+	}
+}
 
 func min(a, b int) int {
     if a < b {
@@ -27,7 +66,7 @@ func (r *Replica) benOrRunning() bool {
 }
 
 func (r *Replica) addNewEntry(newLogEntry Entry) {
-	if r.isLeader {
+	if r.leaderState.isLeader {
 		newLogEntry.Term = int32(r.currentTerm)
 		if r.benOrIndex == len(r.log) - 1 && r.benOrRunning() {
 			newLogEntry.Index = int32(len(r.log)) - 1
@@ -70,4 +109,31 @@ func benOrUncommittedLogEntry(idx int) randomizedpaxosproto.Entry {
 		Timestamp: -1,
 		FromLeader: False,
 	}
+}
+
+
+// Returns true if term <= newTerm
+func (r *Replica) handleIncomingRPCTerm (newTerm int) bool {
+	if newTerm < r.currentTerm {
+		// ignore these entries
+		return false
+	}
+	if newTerm > r.currentTerm {
+		r.currentTerm = newTerm
+
+		if (r.leaderState.isLeader) {
+			clearTimer(r.heartbeatTimer)
+		}
+
+		r.leaderState = LeaderState{
+			isLeader: false,
+			repNextIndex: make([]int, r.N),
+			repCommitIndex: make([]int, r.N),
+			repPreparedIndex: make([]int, r.N),
+		}
+	}
+	timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+	setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+
+	return true
 }
