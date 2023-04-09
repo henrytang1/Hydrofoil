@@ -37,8 +37,14 @@ type ReplicateEntries struct {
     PrevLogIndex					int32
     PrevLogSenderId                 int32
     PrevLogTimestamp                int64
+
     Entries							[]Entry
 }
+
+const (
+	False uint8 		= 0
+	True        		= 1
+)
 
 func (t *ReplicateEntries) GetSenderId() int32 { return t.SenderId }
 func (t *ReplicateEntries) GetTerm() int32 { return t.Term }
@@ -49,6 +55,7 @@ func (t *ReplicateEntries) GetLeaderTimestamp() int64 { return t.LeaderTimestamp
 func (t *ReplicateEntries) GetPrevLogIndex() int32 { return t.PrevLogIndex }
 func (t *ReplicateEntries) GetPrevLogSenderId() int32 { return t.PrevLogSenderId }
 func (t *ReplicateEntries) GetPrevLogTimestamp() int64 { return t.PrevLogTimestamp }
+func (t *ReplicateEntries) GetStartIndex() int32 { return t.PrevLogIndex + 1 }
 func (t *ReplicateEntries) GetEntries() []Entry { return t.Entries }
 
 type ReplicateEntriesReply struct {
@@ -97,7 +104,7 @@ func (t *RequestVote) GetLogLength() int32 { return t.LogLength }
 type RequestVoteReply struct {
     SenderId	   					int32
     Term							int32
-    CommitIndex      				int32
+    CommitIndex      			    int32
     LogTerm                         int32
     LogLength                       int32
 
@@ -124,7 +131,6 @@ type BenOrBroadcast struct {
     LogTerm                         int32
     LogLength                       int32
 
-    BenOrMsgValid                   uint8 // always true here
     Iteration						int32
     BroadcastEntry					Entry
 
@@ -138,7 +144,7 @@ func (t *BenOrBroadcast) GetTerm() int32 { return t.Term }
 func (t *BenOrBroadcast) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *BenOrBroadcast) GetLogTerm() int32 { return t.LogTerm }
 func (t *BenOrBroadcast) GetLogLength() int32 { return t.LogLength }
-func (t *BenOrBroadcast) GetBenOrMsgValid() uint8 { return t.BenOrMsgValid }
+func (t *BenOrBroadcast) GetBenOrMsgValid() uint8 { return True }
 func (t *BenOrBroadcast) GetIteration() int32 { return t.Iteration }
 func (t *BenOrBroadcast) GetBroadcastEntry() Entry { return t.BroadcastEntry }
 func (t *BenOrBroadcast) GetStartIndex() int32 { return t.StartIndex }
@@ -180,7 +186,6 @@ type BenOrConsensus struct {
     LogTerm                         int32
     LogLength                       int32
 
-    BenOrMsgValid                   uint8 // always true here
     Iteration						int32
     Phase							int32
     Stage   						int32 // StageOne or StageTwo depending on BenOr stage
@@ -188,7 +193,6 @@ type BenOrConsensus struct {
     Vote							int32
     MajRequest						Entry
 
-    StartIndex          			int32 // entries start from this index
     Entries     					[]Entry
     PQEntries                       []Entry
 }
@@ -198,13 +202,13 @@ func (t *BenOrConsensus) GetTerm() int32 { return t.Term }
 func (t *BenOrConsensus) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *BenOrConsensus) GetLogTerm() int32 { return t.LogTerm }
 func (t *BenOrConsensus) GetLogLength() int32 { return t.LogLength }
-func (t *BenOrConsensus) GetBenOrMsgValid() uint8 { return t.BenOrMsgValid }
+func (t *BenOrConsensus) GetBenOrMsgValid() uint8 { return True }
 func (t *BenOrConsensus) GetIteration() int32 { return t.Iteration }
 func (t *BenOrConsensus) GetPhase() int32 { return t.Phase }
 func (t *BenOrConsensus) GetStage() int32 { return t.Stage }
 func (t *BenOrConsensus) GetVote() int32 { return t.Vote }
 func (t *BenOrConsensus) GetMajRequest() Entry { return t.MajRequest }
-func (t *BenOrConsensus) GetStartIndex() int32 { return t.StartIndex }
+func (t *BenOrConsensus) GetStartIndex() int32 { return t.CommitIndex + 1 }
 func (t *BenOrConsensus) GetEntries() []Entry { return t.Entries }
 func (t *BenOrConsensus) GetPQEntries() []Entry { return t.PQEntries }
 

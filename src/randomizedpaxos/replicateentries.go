@@ -2,11 +2,17 @@ package randomizedpaxos
 
 import (
 	"log"
+	"math/rand"
 	"time"
 )
 
 func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	r.handleIncomingTerm(rpc)
+
+	if r.term >= int(rpc.Term) {
+		timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+		setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+	}
 
 	if r.term > int(rpc.Term) || r.isLogMoreUpToDate(rpc) == HigherOrder {
 		entries := make([]Entry, 0)
@@ -48,19 +54,8 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	}
 
 	oldCommitIndex := r.commitIndex
-	potentialEntries := make([]Entry, 0)
 
-	firstEntryIndex := int(rpc.PrevLogIndex) + 1
-	for i := int(rpc.PrevLogIndex) + 1; i < len(r.log); i++ {
-		r.inLog.remove(r.log[i])
-		potentialEntries = append(potentialEntries, r.log[i])
-	}
-	r.log = r.log[:rpc.PrevLogIndex + 1]
-
-	for i := int(rpc.PrevLogIndex) + 1 - firstEntryIndex; i < len(rpc.Entries); i++ {
-		r.inLog.add(rpc.Entries[i])
-		r.log = append(r.log, rpc.Entries[i])
-	}
+	potentialEntries := r.replaceExistingLog(rpc, int(rpc.PrevLogIndex) + 1)
 
 	for _, v := range(potentialEntries) {
 		if !r.seenBefore(v) { r.pq.push(v) }
@@ -86,7 +81,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex, Entries: entries, PQEntries: r.pq.extractList(),
-			Success: True, NewRequestedIndex: int32(firstEntryIndex + len(rpc.Entries)),
+			Success: True, NewRequestedIndex: rpc.GetStartIndex() + int32(len(rpc.Entries)),
 		}
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
@@ -108,7 +103,7 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	}
 
 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
-		r.replaceExistingLog(rpc)
+		r.updateLogFromRPC(rpc)
 	} else {
 		for _, v := range(rpc.Entries) {
 			if !r.seenBefore(v) { r.pq.push(v) }

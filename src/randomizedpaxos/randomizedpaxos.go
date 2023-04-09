@@ -30,6 +30,8 @@ type SendCommittedData = randomizedpaxosproto.SendCommittedData
 // type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
 // type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
 
+
+
 type RPC interface {
 	GetSenderId() int32
 	GetTerm() int32
@@ -38,23 +40,19 @@ type RPC interface {
 	GetLogLength() int32
 }
 
-type ReplyMsg interface {
-	GetSenderId() int32
-	GetTerm() int32
-	GetCommitIndex() int32
-	GetLogTerm() int32
-	GetLogLength() int32
+type UpdateMsg interface {
+	RPC
 	GetStartIndex() int32
 	GetEntries() []Entry
+}
+
+type ReplyMsg interface {
+	UpdateMsg
 	GetPQEntries() []Entry
 }
 
 type BenOrBroadcastMsg interface {
-	GetSenderId() int32
-	GetTerm() int32
-	GetCommitIndex() int32
-	GetLogTerm() int32
-	GetLogLength() int32
+	RPC
 	GetBenOrMsgValid() uint8
 	GetIteration() int32
 	GetBroadcastEntry() Entry
@@ -64,11 +62,7 @@ type BenOrBroadcastMsg interface {
 }
 
 type BenOrConsensusMsg interface {
-	GetSenderId() int32
-	GetTerm() int32
-	GetCommitIndex() int32
-	GetLogTerm() int32
-	GetLogLength() int32
+	RPC
 	GetBenOrMsgValid() uint8
 	GetIteration() int32
 	GetPhase() int32
@@ -79,11 +73,6 @@ type BenOrConsensusMsg interface {
 	GetEntries() []Entry
 	GetPQEntries() []Entry
 }
-
-const (
-	False uint8 		= 0
-	True        		= 1
-)
 
 const ( // for benOrStatus
 	Broadcasting uint8	= 0
@@ -98,6 +87,12 @@ const (
 	VoteQuestionMark  	= 2
 	VoteUninitialized 	= 3
 )
+
+const (
+	False uint8 		= randomizedpaxosproto.False
+	True        		= randomizedpaxosproto.True
+)
+
 
 // const INJECT_SLOWDOWN = false
 // const CHAN_BUFFER_SIZE = 200000
@@ -546,9 +541,7 @@ func (r *Replica) sendHeartbeat () {
 	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
 	setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 	
-	if r.leaderState.isLeader {
-		r.broadcastReplicateEntries()
-	}
+	r.broadcastReplicateEntries()
 	// else {
 	// 	r.broadcastInfo()
 	// }
@@ -564,7 +557,7 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 		SenderId: r.Id,
 		Term: -1,
 		Index: -1,
-		Timestamp: r.serverClock.UnixNano(),
+		Timestamp: time.Now().UnixNano(),
 	}
 	
 	// we only send entries at hearbeats
@@ -683,7 +676,7 @@ func (r *Replica) handleSendCommittedData (rpc *SendCommittedData) {
 	}
 
 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
-		r.replaceExistingLog(rpc)
+		r.updateLogFromRPC(rpc)
 	} else {
 		for _, v := range(rpc.Entries) {
 			if !r.seenBefore(v) { r.pq.push(v) }
@@ -708,20 +701,33 @@ func (r *Replica) handleSendCommittedData (rpc *SendCommittedData) {
 	}
 }
 
-func (r *Replica) replaceExistingLog (rpc ReplyMsg) {
-	oldCommitIndex := r.commitIndex
+func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
 	potentialEntries := make([]Entry, 0)
 
 	firstEntryIndex := int(rpc.GetStartIndex())
-	for i := r.commitIndex + 1; i < len(r.log); i++ {
+	for i := logStartIdx; i < len(r.log); i++ {
 		r.inLog.remove(r.log[i])
 		potentialEntries = append(potentialEntries, r.log[i])
 	}
-	r.log = r.log[:r.commitIndex + 1]
+	r.log = r.log[:logStartIdx]
 
-	for i := r.commitIndex + 1 - firstEntryIndex; i < len(rpc.GetEntries()); i++ {
+	for i := logStartIdx - firstEntryIndex; i < len(rpc.GetEntries()); i++ {
 		r.inLog.add(rpc.GetEntries()[i])
 		r.log = append(r.log, rpc.GetEntries()[i])
+	}
+
+	return potentialEntries
+}
+
+func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
+	oldCommitIndex := r.commitIndex
+
+	potentialEntries := r.replaceExistingLog(rpc, r.commitIndex + 1)
+
+	r.commitIndex = int(rpc.GetCommitIndex())
+	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
+	if r.commitIndex > oldCommitIndex {
+		r.benOrState = emptyBenOrState
 	}
 
 	for _, v := range(potentialEntries) {
@@ -757,15 +763,10 @@ func (r *Replica) replaceExistingLog (rpc ReplyMsg) {
 			r.leaderState.repNextIndex[r.Id] = len(r.log)
 			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 
+			firstEntryIndex := int(rpc.GetStartIndex())
 			r.leaderState.repNextIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries())
 			r.leaderState.repMatchIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries()) - 1
 		}
-	}
-
-	r.commitIndex = int(rpc.GetCommitIndex())
-	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
-	if r.commitIndex > oldCommitIndex {
-		r.benOrState = emptyBenOrState
 	}
 }
 
