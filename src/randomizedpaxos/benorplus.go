@@ -6,23 +6,6 @@ import (
 	"time"
 )
 
-type BenOrState struct {
-	benOrStage				uint8
-	benOrIteration				int
-	benOrPhase				int
-
-	benOrVote				int
-	benOrMajRequest				Entry
-
-	// benOrStage				uint8
-	benOrBroadcastRequest 			Entry
-	// benOrWaitingForIndex			int
-	benOrRepliesReceived			int
-	benOrBroadcastMessages			[]BenOrBroadcastMsg
-	benOrConsensusMessages			[]BenOrConsensusMsg
-	biasedCoin				bool
-}
-
 /************************************** Ben Or Braodcast **********************************************/
 func (r *Replica) startBenOrPlus () {
 	r.startBenOrIteration(true)
@@ -36,8 +19,8 @@ func (r *Replica) startBenOrIteration(startFromBeginning bool) {
 			benOrIteration: 0,
 			benOrPhase: 0,
 			benOrVote: -1,
-			benOrMajRequest: benOrUncommittedLogEntry(-1),
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
+			benOrMajRequest: benOrUncommittedLogEntry(),
+			benOrBroadcastRequest: benOrUncommittedLogEntry(),
 			benOrRepliesReceived: 0,
 			benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
 			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
@@ -54,7 +37,9 @@ func (r *Replica) startBenOrIteration(startFromBeginning bool) {
 		return
 	}
 
-	args := &BenOrBroadcast{SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), 
+	r.log[r.benOrIndex].BenOrActive = True
+
+	args := &BenOrBroadcast{SenderId: r.Id, Term: int32(r.term), Index: int32(r.benOrIndex), 
 		Iteration: int32(r.benOrState.benOrIteration), ClientReq: request}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
@@ -71,25 +56,30 @@ func (r *Replica) startBenOrIteration(startFromBeginning bool) {
 
 func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 	if (!r.handleIncomingRPCTerm(int(rpc.GetTerm()))) {
-		return // TODO: send reply?
+		args := &SendCommittedData{
+			SenderId: r.Id, Term: int32(r.term), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), 
+			Entries: r.log[rpc.GetIndex():r.benOrIndex+1],
+		}
+		r.SendMsg(rpc.GetSenderId(), r.sendCommittedDataRPC, args)
+		return
 	}
 
 	cmd := UniqueCommand{senderId: rpc.GetClientReq().SenderId, time: rpc.GetClientReq().Timestamp}
-	if !r.seenEntries.contains(cmd) {
+	if !r.inLog.contains(cmd) {
 		r.addNewEntry(rpc.GetClientReq())
 	}
 
 	if int(rpc.GetIndex()) < r.benOrIndex {
-		args := &GetCommittedDataReply{
-			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), Entries: r.log[rpc.GetIndex():r.benOrIndex+1],
+		args := &SendCommittedData{
+			SenderId: r.Id, Term: int32(r.term), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), Entries: r.log[rpc.GetIndex():r.benOrIndex+1],
 		}
-		r.SendMsg(rpc.GetSenderId(), r.getCommittedDataReplyRPC, args)
+		r.SendMsg(rpc.GetSenderId(), r.sendCommittedDataRPC, args)
 		return
 	}
 
 	if r.benOrIndex < int(rpc.GetIndex()) {
 		args := &GetCommittedData{
-			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: int32(r.benOrIndex), EndIndex: rpc.GetIndex(),
+			SenderId: r.Id, Term: int32(r.term), StartIndex: int32(r.benOrIndex), EndIndex: rpc.GetIndex(),
 		}
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
@@ -111,8 +101,8 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 			benOrIteration: int(rpc.GetIteration()),
 			benOrPhase: 0,
 			benOrVote: -1,
-			benOrMajRequest: benOrUncommittedLogEntry(-1),
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
+			benOrMajRequest: benOrUncommittedLogEntry(),
+			benOrBroadcastRequest: benOrUncommittedLogEntry(),
 			benOrRepliesReceived: 1,
 			benOrBroadcastMessages: []BenOrBroadcastMsg{rpc},
 			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
@@ -126,7 +116,7 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 	if r.benOrState.benOrIteration > int(rpc.GetIteration()) {
 		if t, ok := rpc.(*BenOrBroadcast); ok {
 			args := &BenOrBroadcastReply{
-				SenderId: r.Id, Term: int32(r.currentTerm), Index: t.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
+				SenderId: r.Id, Term: int32(r.term), Index: t.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 			}
 			r.SendMsg(rpc.GetSenderId(), r.benOrBroadcastReplyRPC, args)
 		}
@@ -154,7 +144,7 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 
 	if _, ok := rpc.(*BenOrBroadcast); ok {
 		args := &BenOrBroadcastReply{
-			SenderId: r.Id, Term: int32(r.currentTerm), Index: rpc.GetIndex(), Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
+			SenderId: r.Id, Term: int32(r.term), Index: rpc.GetIndex(), Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 		}
 		r.SendMsg(rpc.GetSenderId(), r.benOrBroadcastReplyRPC, args)
 	}
@@ -190,8 +180,8 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 		})
 
 		foundMajRequest = int32(Vote0)
-		majRequest = benOrUncommittedLogEntry(-1)
-		curRequest := benOrUncommittedLogEntry(-1)
+		majRequest = benOrUncommittedLogEntry()
+		curRequest := benOrUncommittedLogEntry()
 
 		counter := 0
 		timestamp := int64(-1)
@@ -227,13 +217,13 @@ func (r *Replica) startBenOrConsensusStage1(initialize bool) {
 		majRequest = r.benOrState.benOrMajRequest
 	}
 
-	leaderEntry := benOrUncommittedLogEntry(-1)
+	leaderEntry := benOrUncommittedLogEntry()
 	if r.log[r.benOrIndex].FromLeader == True {
 		leaderEntry = r.log[r.benOrIndex]
 	}
 
 	args := &BenOrConsensus{
-		SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), 
+		SenderId: r.Id, Term: int32(r.term), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), 
 		Phase: int32(r.benOrState.benOrPhase), Vote: foundMajRequest, MajRequest: majRequest, LeaderRequest: leaderEntry, Stage: 1} // last entry represents the phase
 	// r.SendMsg(r.Id, r.benOrBroadcastRPC, args)
 	for i := 0; i < r.N; i++ {
@@ -286,13 +276,13 @@ func (r *Replica) startBenOrConsensusStage2(initialize bool) {
 	vote = int32(r.benOrState.benOrVote)
 	majRequest = r.benOrState.benOrMajRequest
 
-	leaderEntry := benOrUncommittedLogEntry(-1)
+	leaderEntry := benOrUncommittedLogEntry()
 	if r.log[r.benOrIndex].FromLeader == True {
 		leaderEntry = r.log[r.benOrIndex]
 	}
 
 	args := &BenOrConsensus{
-		SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration),
+		SenderId: r.Id, Term: int32(r.term), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration),
 		Phase: int32(r.benOrState.benOrPhase), Vote: vote, MajRequest: majRequest, LeaderRequest: leaderEntry, Stage: 2} // last entry represents the phase
 
 	for i := 0; i < r.N; i++ {
@@ -309,21 +299,26 @@ func (r *Replica) startBenOrConsensusStage2(initialize bool) {
 
 func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 	if (!r.handleIncomingRPCTerm(int(rpc.GetTerm()))) {
-		return // TODO: send reply?
-	}
-	
-	if int(rpc.GetIndex()) < r.benOrIndex {
-		args := &GetCommittedDataReply{
-			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), 
+		args := &SendCommittedData{
+			SenderId: r.Id, Term: int32(r.term), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), 
 			Entries: r.log[rpc.GetIndex():r.benOrIndex+1],
 		}
-		r.SendMsg(rpc.GetSenderId(), r.getCommittedDataReplyRPC, args)
+		r.SendMsg(rpc.GetSenderId(), r.sendCommittedDataRPC, args)
+		return
+	}
+
+	if int(rpc.GetIndex()) < r.benOrIndex {
+		args := &SendCommittedData{
+			SenderId: r.Id, Term: int32(r.term), StartIndex: rpc.GetIndex(), EndIndex: int32(r.benOrIndex), 
+			Entries: r.log[rpc.GetIndex():r.benOrIndex+1],
+		}
+		r.SendMsg(rpc.GetSenderId(), r.sendCommittedDataRPC, args)
 		return
 	}
 
 	if r.benOrIndex < int(rpc.GetIndex()) {
 		args := &GetCommittedData{
-			SenderId: r.Id, Term: int32(r.currentTerm), StartIndex: int32(r.benOrIndex), EndIndex: rpc.GetIndex(),
+			SenderId: r.Id, Term: int32(r.term), StartIndex: int32(r.benOrIndex), EndIndex: rpc.GetIndex(),
 		}
 
 		// request data from other replicas
@@ -379,7 +374,7 @@ func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 	if r.benOrState.benOrIteration > int(rpc.GetIteration()) {
 		if _, ok := rpc.(*BenOrConsensus); ok {
 			args := &BenOrBroadcastReply{
-				SenderId: r.Id, Term: int32(r.currentTerm), Index: rpc.GetIndex(), Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
+				SenderId: r.Id, Term: int32(r.term), Index: rpc.GetIndex(), Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 			}
 			r.SendMsg(rpc.GetSenderId(), r.benOrBroadcastReplyRPC, args)
 		}
@@ -421,7 +416,7 @@ func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 		(r.benOrState.benOrPhase == int(rpc.GetPhase()) && int(r.benOrState.benOrStage) > int(rpc.GetStage())){
 		if t, ok := rpc.(*BenOrConsensus); ok {
 			args := &BenOrConsensusReply{
-				SenderId: r.Id, Term: int32(r.currentTerm), Index: t.Index, Iteration: int32(r.benOrState.benOrIteration), 
+				SenderId: r.Id, Term: int32(r.term), Index: t.Index, Iteration: int32(r.benOrState.benOrIteration), 
 				Phase: int32(r.benOrState.benOrPhase), Vote: int32(r.benOrState.benOrVote), MajRequest: r.benOrState.benOrMajRequest, 
 				LeaderRequest: r.log[r.benOrIndex], Stage: int32(r.benOrState.benOrStage),
 			}
@@ -461,7 +456,7 @@ func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 
 	if t, ok := rpc.(*BenOrConsensus); ok {
 		args := &BenOrBroadcastReply{
-			SenderId: r.Id, Term: int32(r.currentTerm), Index: t.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
+			SenderId: r.Id, Term: int32(r.term), Index: t.Index, Iteration: int32(r.benOrIndex), ClientReq: r.benOrState.benOrBroadcastRequest,
 		}
 		r.SendMsg(rpc.GetSenderId(), r.benOrBroadcastReplyRPC, args)
 	}
@@ -489,9 +484,9 @@ func (r *Replica) handleBenOrStageEnd() {
 			benOrIteration: 0,
 			benOrPhase: 0,
 			benOrVote: 0,
-			benOrMajRequest: benOrUncommittedLogEntry(-1),
+			benOrMajRequest: benOrUncommittedLogEntry(),
 			benOrRepliesReceived: 0,
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
+			benOrBroadcastRequest: benOrUncommittedLogEntry(),
 			benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
 			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
 			biasedCoin: false,
@@ -517,9 +512,9 @@ func (r *Replica) handleBenOrStageEnd() {
 			benOrIteration: r.benOrState.benOrIteration+1,
 			benOrPhase: 0,
 			benOrVote: 0,
-			benOrMajRequest: benOrUncommittedLogEntry(-1),
+			benOrMajRequest: benOrUncommittedLogEntry(),
 			benOrRepliesReceived: 0,
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
+			benOrBroadcastRequest: benOrUncommittedLogEntry(),
 			benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
 			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
 			biasedCoin: false,
@@ -542,7 +537,7 @@ func (r *Replica) handleBenOrStageEnd() {
 			benOrVote: initialVote,
 			benOrMajRequest: r.benOrState.benOrMajRequest,
 			benOrRepliesReceived: 0,
-			benOrBroadcastRequest: benOrUncommittedLogEntry(-1),
+			benOrBroadcastRequest: benOrUncommittedLogEntry(),
 			benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
 			benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
 			biasedCoin: r.benOrState.biasedCoin,
@@ -560,7 +555,7 @@ func (r *Replica) resendBenOrTimer() {
 
 	if r.benOrState.benOrStage == Broadcasting {
 		args := &BenOrBroadcast{
-			SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), ClientReq: r.benOrState.benOrBroadcastRequest}
+			SenderId: r.Id, Term: int32(r.term), Index: int32(r.benOrIndex), Iteration: int32(r.benOrState.benOrIteration), ClientReq: r.benOrState.benOrBroadcastRequest}
 		for i := 0; i < r.N; i++ {
 			if int32(i) != r.Id {
 				r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
@@ -569,12 +564,12 @@ func (r *Replica) resendBenOrTimer() {
 	} else if r.benOrState.benOrStage == StageOne {
 		foundMajRequest := int32(r.benOrState.benOrVote)
 		majRequest := r.benOrState.benOrMajRequest
-		leaderEntry := benOrUncommittedLogEntry(-1)
+		leaderEntry := benOrUncommittedLogEntry()
 		if r.log[r.benOrIndex].FromLeader == True {
 			leaderEntry = r.log[r.benOrIndex]
 		}
 		args := &BenOrConsensus{
-			SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), 
+			SenderId: r.Id, Term: int32(r.term), Index: int32(r.benOrIndex), 
 			Iteration: int32(r.benOrState.benOrIteration), Phase: int32(r.benOrState.benOrPhase), 
 			Vote: foundMajRequest, MajRequest: majRequest, LeaderRequest: leaderEntry, Stage: 1}
 		for i := 0; i < r.N; i++ {
@@ -585,12 +580,12 @@ func (r *Replica) resendBenOrTimer() {
 	} else if r.benOrState.benOrStage == StageTwo {
 		vote := int32(r.benOrState.benOrVote)
 		majRequest := r.benOrState.benOrMajRequest
-		leaderEntry := benOrUncommittedLogEntry(-1)
+		leaderEntry := benOrUncommittedLogEntry()
 		if r.log[r.benOrIndex].FromLeader == True{
 			leaderEntry = r.log[r.benOrIndex]
 		}
 		args := &BenOrConsensus{
-			SenderId: r.Id, Term: int32(r.currentTerm), Index: int32(r.benOrIndex), 
+			SenderId: r.Id, Term: int32(r.term), Index: int32(r.benOrIndex), 
 			Iteration: int32(r.benOrState.benOrIteration), Phase: int32(r.benOrState.benOrPhase), 
 			Vote: vote, MajRequest: majRequest, LeaderRequest: leaderEntry, Stage: 2} // last entry represents the phase
 		for i := 0; i < r.N; i++ {
