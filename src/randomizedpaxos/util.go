@@ -2,6 +2,7 @@ package randomizedpaxos
 
 import (
 	"log"
+	"math/rand"
 	"time"
 )
 
@@ -170,6 +171,9 @@ func (r *Replica) handleIncomingTerm(rpc RPC) {
 		if r.leaderState.isLeader {
 			r.leaderState = emptyLeaderState
 			clearTimer(r.heartbeatTimer)
+
+			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 		if r.candidateState.isCandidate {
 			r.candidateState = emptyCandidateState
@@ -264,9 +268,9 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 // 	return true
 // }
 
-// func entryEqual (e1 Entry, e2 Entry) bool {
-// 	return e1.SenderId == e2.SenderId && e1.Timestamp == e2.Timestamp
-// }
+func entryEqual (e1 Entry, e2 Entry) bool {
+	return e1.SenderId == e2.SenderId && e1.Timestamp == e2.Timestamp
+}
 
 // func (r *Replica) addEntryToLogIndex (entry Entry, idx int) {
 // 	if r.inLog.is

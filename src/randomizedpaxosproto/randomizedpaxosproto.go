@@ -188,10 +188,12 @@ type BenOrConsensus struct {
 
     Iteration						int32
     Phase							int32
-    Stage   						int32 // StageOne or StageTwo depending on BenOr stage
+    Stage   						uint8 // StageOne or StageTwo depending on BenOr stage
 
-    Vote							int32
-    MajRequest						Entry
+    Vote							uint8
+
+    HaveMajEntry   					uint8 // bool
+    MajEntry						Entry
 
     Entries     					[]Entry
     PQEntries                       []Entry
@@ -205,9 +207,10 @@ func (t *BenOrConsensus) GetLogLength() int32 { return t.LogLength }
 func (t *BenOrConsensus) GetBenOrMsgValid() uint8 { return True }
 func (t *BenOrConsensus) GetIteration() int32 { return t.Iteration }
 func (t *BenOrConsensus) GetPhase() int32 { return t.Phase }
-func (t *BenOrConsensus) GetStage() int32 { return t.Stage }
-func (t *BenOrConsensus) GetVote() int32 { return t.Vote }
-func (t *BenOrConsensus) GetMajRequest() Entry { return t.MajRequest }
+func (t *BenOrConsensus) GetStage() uint8 { return t.Stage }
+func (t *BenOrConsensus) GetVote() uint8 { return t.Vote }
+func (t *BenOrConsensus) GetHaveMajEntry() uint8 { return t.HaveMajEntry }
+func (t *BenOrConsensus) GetMajEntry() Entry { return t.MajEntry }
 func (t *BenOrConsensus) GetStartIndex() int32 { return t.CommitIndex + 1 }
 func (t *BenOrConsensus) GetEntries() []Entry { return t.Entries }
 func (t *BenOrConsensus) GetPQEntries() []Entry { return t.PQEntries }
@@ -222,10 +225,12 @@ type BenOrConsensusReply struct {
     BenOrMsgValid                   uint8 // if this is false, then the replica hasn't started Ben-Or yet (and thus Vote is meaningless)
     Iteration						int32
     Phase							int32
-    Stage   						int32 // StageOne or StageTwo depending on BenOr stage
+    Stage   						uint8 // StageOne or StageTwo depending on BenOr stage
 
-    Vote							int32
-    MajRequest						Entry
+    Vote							uint8
+
+    HaveMajEntry   					uint8 // bool
+    MajEntry						Entry
 
     StartIndex          			int32 // entries start from this index
     Entries     					[]Entry
@@ -240,9 +245,10 @@ func (t *BenOrConsensusReply) GetLogLength() int32 { return t.LogLength }
 func (t *BenOrConsensusReply) GetBenOrMsgValid() uint8 { return t.BenOrMsgValid }
 func (t *BenOrConsensusReply) GetIteration() int32 { return t.Iteration }
 func (t *BenOrConsensusReply) GetPhase() int32 { return t.Phase }
-func (t *BenOrConsensusReply) GetStage() int32 { return t.Stage }
-func (t *BenOrConsensusReply) GetVote() int32 { return t.Vote }
-func (t *BenOrConsensusReply) GetMajRequest() Entry { return t.MajRequest }
+func (t *BenOrConsensusReply) GetStage() uint8 { return t.Stage }
+func (t *BenOrConsensusReply) GetVote() uint8 { return t.Vote }
+func (t *BenOrConsensusReply) GetHaveMajEntry() uint8 { return t.HaveMajEntry }
+func (t *BenOrConsensusReply) GetMajEntry() Entry { return t.MajEntry }
 func (t *BenOrConsensusReply) GetStartIndex() int32 { return t.StartIndex }
 func (t *BenOrConsensusReply) GetEntries() []Entry { return t.Entries }
 func (t *BenOrConsensusReply) GetPQEntries() []Entry { return t.PQEntries }

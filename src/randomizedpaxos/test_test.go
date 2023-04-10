@@ -20,7 +20,7 @@ func TestInitialElection(t *testing.T) {
 	// replica.heartbeatTimer = time.NewTimer(time.Duration(6000) * time.Millisecond)
 	setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
 
-	<-replica.heartbeatTimer.C
+	<-replica.heartbeatTimer.timer.C
 	fmt.Println("hello")
 
 	dlog.Println("TEST")

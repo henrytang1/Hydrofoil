@@ -30,8 +30,6 @@ type SendCommittedData = randomizedpaxosproto.SendCommittedData
 // type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
 // type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
 
-
-
 type RPC interface {
 	GetSenderId() int32
 	GetTerm() int32
@@ -66,9 +64,10 @@ type BenOrConsensusMsg interface {
 	GetBenOrMsgValid() uint8
 	GetIteration() int32
 	GetPhase() int32
-	GetStage() int32
-	GetVote() int32
-	GetMajRequest() Entry
+	GetStage() uint8
+	GetVote() uint8
+	GetHaveMajEntry() uint8
+	GetMajEntry() Entry
 	GetStartIndex() int32
 	GetEntries() []Entry
 	GetPQEntries() []Entry
@@ -93,6 +92,15 @@ const (
 	True        		= randomizedpaxosproto.True
 )
 
+func convertBoolToInteger(b bool) uint8 {
+	if b { return True }
+	return False
+}
+
+func convertIntegerToBool(i uint8) bool {
+	if i == True { return true }
+	return false
+}
 
 // const INJECT_SLOWDOWN = false
 // const CHAN_BUFFER_SIZE = 200000
@@ -119,12 +127,16 @@ type BenOrState struct {
 	benOrPhase			int
 	benOrStage			uint8
 
-	benOrBroadcastRequest 		Entry // entry that you initially broadcast this iteration
-	benOrMajRequest			Entry // majority entry received in BenOrBroadcast. If none, then this is emptyEntry.
-	benOrBroadcastMessages		[]BenOrBroadcastMsg
-	
-	benOrVote			int
-	benOrConsensusMessages		[]BenOrConsensusMsg
+	benOrBroadcastEntry 		Entry // entry that you initially broadcast this iteration
+	benOrBroadcastMessages		[]Entry
+	heardServerFromBroadcast	[]bool
+
+	haveMajEntry			bool
+	benOrMajEntry			Entry // majority entry received in BenOrBroadcast. If none, then this is emptyEntry.
+
+	benOrVote			uint8
+	benOrConsensusMessages		[]uint8
+	heardServerFromConsensus	[]bool
 	
 	biasedCoin			bool
 }
@@ -274,12 +286,16 @@ var emptyBenOrState = BenOrState{
 	benOrPhase: -1,
 	benOrStage: NotRunning,
 
-	benOrBroadcastRequest: emptyEntry,
-	benOrMajRequest: emptyEntry,
-	benOrBroadcastMessages: make([]BenOrBroadcastMsg, 0),
+	benOrBroadcastEntry: emptyEntry,
+	benOrBroadcastMessages: make([]Entry, 0),
+	heardServerFromBroadcast: make([]bool, 0),
 
-	benOrVote: -1,
-	benOrConsensusMessages: make([]BenOrConsensusMsg, 0),
+	haveMajEntry: false,
+	benOrMajEntry: emptyEntry,
+
+	benOrVote: VoteUninitialized,
+	benOrConsensusMessages: make([]uint8, 0),
+	heardServerFromConsensus: make([]bool, 0),
 	
 	biasedCoin: false,
 }
@@ -350,8 +366,8 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 	r.benOrBroadcastReplyRPC = r.RegisterRPC(new(BenOrBroadcastReply), r.benOrBroadcastReplyChan)
 	r.benOrConsensusRPC = r.RegisterRPC(new(BenOrConsensus), r.benOrConsensusChan)
 	r.benOrConsensusReplyRPC = r.RegisterRPC(new(BenOrConsensusReply), r.benOrConsensusReplyChan)
-	r.getCommittedDataRPC = r.RegisterRPC(new(GetCommittedData), r.getCommittedDataChan)
-	r.sendCommittedDataRPC = r.RegisterRPC(new(SendCommittedData), r.sendCommittedDataChan)
+	// r.getCommittedDataRPC = r.RegisterRPC(new(GetCommittedData), r.getCommittedDataChan)
+	// r.sendCommittedDataRPC = r.RegisterRPC(new(SendCommittedData), r.sendCommittedDataChan)
 
 	// go r.run()
 
@@ -486,19 +502,19 @@ func (r *Replica) runInNewProcess() {
 				r.handleBenOrConsensus(benOrConsensusReply)
 				break
 
-			case getCommittedDataS := <-r.getCommittedDataChan:
-				getCommittedData := getCommittedDataS.(*GetCommittedData)
-				//got a GetCommittedData message
-				dlog.Printf("Received GetCommittedData from replica %d\n", getCommittedData.SenderId)
-				r.handleGetCommittedData(getCommittedData)
-				break
+			// case getCommittedDataS := <-r.getCommittedDataChan:
+			// 	getCommittedData := getCommittedDataS.(*GetCommittedData)
+			// 	//got a GetCommittedData message
+			// 	dlog.Printf("Received GetCommittedData from replica %d\n", getCommittedData.SenderId)
+			// 	r.handleGetCommittedData(getCommittedData)
+			// 	break
 			
-			case sendCommittedDataS := <-r.sendCommittedDataChan:
-				sendCommittedData := sendCommittedDataS.(*SendCommittedData)
-				//got a GetCommittedData message
-				dlog.Printf("Received SendCommittedData from replica %d\n", sendCommittedData.SenderId)
-				r.handleSendCommittedData(sendCommittedData)
-				break
+			// case sendCommittedDataS := <-r.sendCommittedDataChan:
+			// 	sendCommittedData := sendCommittedDataS.(*SendCommittedData)
+			// 	//got a GetCommittedData message
+			// 	dlog.Printf("Received SendCommittedData from replica %d\n", sendCommittedData.SenderId)
+			// 	r.handleSendCommittedData(sendCommittedData)
+			// 	break
 
 			// case infoBroadcastS := <-r.infoBroadcastChan:
 			// 	infoBroadcast := infoBroadcastS.(*InfoBroadcast)
@@ -571,6 +587,106 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 	}
 }
 
+// func (r *Replica) getUpToDateData () {
+// 	if r.getCommittedTimer.active {
+// 		return
+// 	}
+// 	timeout := rand.Intn(r.getCommittedTimeout/2) + r.getCommittedTimeout/2
+// 	setTimer(r.getCommittedTimer, time.Duration(timeout)*time.Millisecond)
+
+// 	args := &GetCommittedData{
+// 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+// 	}
+// 	for i := 0; i < r.N; i++ {
+// 		if int32(i) != r.Id {
+// 			r.SendMsg(int32(i), r.getCommittedDataRPC, args)
+// 		}
+// 	}
+// }
+
+func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
+	potentialEntries := make([]Entry, 0)
+
+	firstEntryIndex := int(rpc.GetStartIndex())
+	changes := false
+	for i := logStartIdx - firstEntryIndex; i < len(rpc.GetEntries()); i++ {
+		if i + firstEntryIndex >= len(r.log) ||
+			!entryEqual(r.log[i + firstEntryIndex], rpc.GetEntries()[i]) {
+			changes = true
+		}
+	}
+
+	if !changes { return potentialEntries }
+
+	for i := logStartIdx; i < len(r.log); i++ {
+		r.inLog.remove(r.log[i])
+		potentialEntries = append(potentialEntries, r.log[i])
+	}
+	r.log = r.log[:logStartIdx]
+
+	for i := logStartIdx - firstEntryIndex; i < len(rpc.GetEntries()); i++ {
+		r.inLog.add(rpc.GetEntries()[i])
+		r.log = append(r.log, rpc.GetEntries()[i])
+		r.pq.remove(rpc.GetEntries()[i])
+	}
+
+	return potentialEntries
+}
+
+func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
+	oldCommitIndex := r.commitIndex
+
+	potentialEntries := r.replaceExistingLog(rpc, r.commitIndex + 1)
+
+	r.commitIndex = int(rpc.GetCommitIndex())
+	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
+	if r.commitIndex > oldCommitIndex {
+		if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+			r.pq.push(r.benOrState.benOrBroadcastEntry)
+		}
+		r.benOrState = emptyBenOrState
+	}
+
+	for _, v := range(potentialEntries) {
+		if !r.seenBefore(v) { r.pq.push(v) }
+	}
+
+	for _, v := range(rpc.GetPQEntries()) {
+		if !r.seenBefore(v) { r.pq.push(v) }
+	}
+
+	if r.leaderState.isLeader {
+		if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {
+			log.Fatal("Something is wrong!!!")
+		}
+
+		for !r.pq.isEmpty() {
+			entry := r.pq.pop()
+			entry.Term = int32(r.term)
+			entry.Index = int32(len(r.log))
+
+			if !r.inLog.contains(entry) {
+				r.log = append(r.log, entry)
+				r.inLog.add(entry)
+			}
+		}
+
+		for i := 0; i < r.N; i++ {
+			if i != int(r.Id) || i != int(rpc.GetSenderId()) {
+				r.leaderState.repNextIndex[i] = min(r.leaderState.repNextIndex[i], oldCommitIndex + 1)
+				r.leaderState.repMatchIndex[i] = min(r.leaderState.repMatchIndex[i], oldCommitIndex)
+			}
+
+			r.leaderState.repNextIndex[r.Id] = len(r.log)
+			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+
+			firstEntryIndex := int(rpc.GetStartIndex())
+			r.leaderState.repNextIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries())
+			r.leaderState.repMatchIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries()) - 1
+		}
+	}
+}
+
 // func (r *Replica) broadcastInfo() {
 // 	for i := 0; i < r.N; i++ {
 // 		if int32(i) != r.Id {
@@ -632,143 +748,57 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 // 	return
 // }
 
-func (r *Replica) getUpToDateData () {
-	if r.getCommittedTimer.active {
-		return
-	}
-	timeout := rand.Intn(r.getCommittedTimeout/2) + r.getCommittedTimeout/2
-	setTimer(r.getCommittedTimer, time.Duration(timeout)*time.Millisecond)
+// func (r *Replica) handleGetCommittedData (rpc *GetCommittedData) {
+// 	r.handleIncomingTerm(rpc)
 
-	args := &GetCommittedData{
-		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-	}
-	for i := 0; i < r.N; i++ {
-		if int32(i) != r.Id {
-			r.SendMsg(int32(i), r.getCommittedDataRPC, args)
-		}
-	}
-}
+// 	// only respond if we have a higher commit index
+// 	if r.commitIndex <= int(rpc.CommitIndex) {
+// 		return
+// 	}
 
-func (r *Replica) handleGetCommittedData (rpc *GetCommittedData) {
-	r.handleIncomingTerm(rpc)
+// 	entries := make([]Entry, 0)
+// 	if rpc.CommitIndex + 1 < int32(len(r.log)) {
+// 		entries = r.log[rpc.CommitIndex + 1:]
+// 	}
 
-	// only respond if we have a higher commit index
-	if r.commitIndex <= int(rpc.CommitIndex) {
-		return
-	}
+// 	args := &SendCommittedData{
+// 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+// 		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
+// 	}
+// 	r.SendMsg(rpc.SenderId, r.sendCommittedDataRPC, args)
+// }
 
-	entries := make([]Entry, 0)
-	if rpc.CommitIndex + 1 < int32(len(r.log)) {
-		entries = r.log[rpc.CommitIndex + 1:]
-	}
+// func (r *Replica) handleSendCommittedData (rpc *SendCommittedData) {
+// 	r.handleIncomingTerm(rpc)
+// 	if r.term > int(rpc.Term) {
+// 		return
+// 	}
 
-	args := &SendCommittedData{
-		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
-	}
-	r.SendMsg(rpc.SenderId, r.sendCommittedDataRPC, args)
-}
-
-func (r *Replica) handleSendCommittedData (rpc *SendCommittedData) {
-	r.handleIncomingTerm(rpc)
-	if r.term > int(rpc.Term) {
-		return
-	}
-
-	if r.isLogMoreUpToDate(rpc) == LowerOrder {
-		r.updateLogFromRPC(rpc)
-	} else {
-		for _, v := range(rpc.Entries) {
-			if !r.seenBefore(v) { r.pq.push(v) }
-		}
+// 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
+// 		r.updateLogFromRPC(rpc)
+// 	} else {
+// 		for _, v := range(rpc.Entries) {
+// 			if !r.seenBefore(v) { r.pq.push(v) }
+// 		}
 	
-		for _, v := range(rpc.PQEntries) {
-			if !r.seenBefore(v) { r.pq.push(v) }
-		}
+// 		for _, v := range(rpc.PQEntries) {
+// 			if !r.seenBefore(v) { r.pq.push(v) }
+// 		}
 
-		if r.leaderState.isLeader {
-			for !r.pq.isEmpty() {
-				entry := r.pq.pop()
-				entry.Term = int32(r.term)
-				entry.Index = int32(len(r.log))
+// 		if r.leaderState.isLeader {
+// 			for !r.pq.isEmpty() {
+// 				entry := r.pq.pop()
+// 				entry.Term = int32(r.term)
+// 				entry.Index = int32(len(r.log))
 
-				if !r.inLog.contains(entry) {
-					r.log = append(r.log, entry)
-					r.inLog.add(entry)
-				}
-			}
-		}
-	}
-}
-
-func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
-	potentialEntries := make([]Entry, 0)
-
-	firstEntryIndex := int(rpc.GetStartIndex())
-	for i := logStartIdx; i < len(r.log); i++ {
-		r.inLog.remove(r.log[i])
-		potentialEntries = append(potentialEntries, r.log[i])
-	}
-	r.log = r.log[:logStartIdx]
-
-	for i := logStartIdx - firstEntryIndex; i < len(rpc.GetEntries()); i++ {
-		r.inLog.add(rpc.GetEntries()[i])
-		r.log = append(r.log, rpc.GetEntries()[i])
-	}
-
-	return potentialEntries
-}
-
-func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
-	oldCommitIndex := r.commitIndex
-
-	potentialEntries := r.replaceExistingLog(rpc, r.commitIndex + 1)
-
-	r.commitIndex = int(rpc.GetCommitIndex())
-	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
-	if r.commitIndex > oldCommitIndex {
-		r.benOrState = emptyBenOrState
-	}
-
-	for _, v := range(potentialEntries) {
-		if !r.seenBefore(v) { r.pq.push(v) }
-	}
-
-	for _, v := range(rpc.GetPQEntries()) {
-		if !r.seenBefore(v) { r.pq.push(v) }
-	}
-
-	if r.leaderState.isLeader {
-		if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {
-			log.Fatal("Something is wrong!!!")
-		}
-
-		for !r.pq.isEmpty() {
-			entry := r.pq.pop()
-			entry.Term = int32(r.term)
-			entry.Index = int32(len(r.log))
-
-			if !r.inLog.contains(entry) {
-				r.log = append(r.log, entry)
-				r.inLog.add(entry)
-			}
-		}
-
-		for i := 0; i < r.N; i++ {
-			if i != int(r.Id) || i != int(rpc.GetSenderId()) {
-				r.leaderState.repNextIndex[i] = min(r.leaderState.repNextIndex[i], oldCommitIndex + 1)
-				r.leaderState.repMatchIndex[i] = min(r.leaderState.repMatchIndex[i], oldCommitIndex)
-			}
-
-			r.leaderState.repNextIndex[r.Id] = len(r.log)
-			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-
-			firstEntryIndex := int(rpc.GetStartIndex())
-			r.leaderState.repNextIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries())
-			r.leaderState.repMatchIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries()) - 1
-		}
-	}
-}
+// 				if !r.inLog.contains(entry) {
+// 					r.log = append(r.log, entry)
+// 					r.inLog.add(entry)
+// 				}
+// 			}
+// 		}
+// 	}
+// }
 
 // // if something actually changed!
 // if updated {

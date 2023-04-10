@@ -87,6 +87,7 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 	}
 
 	if r.candidateState.votesReceived > r.N/2 {
+		// become the leader
 		r.leaderState = LeaderState{
 			isLeader: true,
 			repNextIndex: make([]int, r.N),
@@ -116,6 +117,8 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 			r.leaderState.repNextIndex[r.Id] = len(r.log)
 			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 		}
+
+		clearTimer(r.electionTimer)
 
 		r.sendHeartbeat()
 	}

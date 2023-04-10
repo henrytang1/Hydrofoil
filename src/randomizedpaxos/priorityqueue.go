@@ -85,8 +85,8 @@ func (extPQ *ExtendedPriorityQueue) pop() Entry {
 	return item.entry
 }
 
-func (extPQ *ExtendedPriorityQueue) peek() *Item {
-	return extPQ.pq[0]
+func (extPQ *ExtendedPriorityQueue) peek() Entry {
+	return extPQ.pq[0].entry
 }
 
 // func (extPQ *ExtendedPriorityQueue) clearLeaderEntries(){

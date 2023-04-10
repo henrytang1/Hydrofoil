@@ -2,17 +2,11 @@ package randomizedpaxos
 
 import (
 	"log"
-	"math/rand"
 	"time"
 )
 
 func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	r.handleIncomingTerm(rpc)
-
-	if r.term >= int(rpc.Term) {
-		timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-		setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-	}
 
 	if r.term > int(rpc.Term) || r.isLogMoreUpToDate(rpc) == HigherOrder {
 		entries := make([]Entry, 0)
@@ -64,11 +58,14 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	r.commitIndex = int(rpc.CommitIndex)
 	r.logTerm = max(r.logTerm, int(rpc.LogTerm))
 	if r.commitIndex > oldCommitIndex {
+		if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+			r.pq.push(r.benOrState.benOrBroadcastEntry)
+		}
 		r.benOrState = emptyBenOrState
 	}
 
 	if r.benOrState.benOrStage == Broadcasting && r.commitIndex + 1 < len(r.log) && 
-		r.benOrState.benOrBroadcastRequest != r.log[r.commitIndex + 1] {
+		r.benOrState.benOrBroadcastEntry != r.log[r.commitIndex + 1] {
 		r.benOrState.biasedCoin = true
 	}
 
@@ -103,6 +100,7 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	}
 
 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
+		// todo: leader needs to handle the case where the committed entries match up with its own!
 		r.updateLogFromRPC(rpc)
 	} else {
 		for _, v := range(rpc.Entries) {
