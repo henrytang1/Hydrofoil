@@ -1,7 +1,9 @@
 package randomizedpaxos
 
 import (
+	"fmt"
 	"log"
+	"math/rand"
 	"time"
 )
 
@@ -22,8 +24,16 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		}
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
+
+		if r.term == int(rpc.Term) {
+			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+		}
 		return
 	}
+
+	timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+	setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 
 	if int(rpc.PrevLogIndex) > len(r.log) || 
 		(r.log[rpc.PrevLogIndex].SenderId != rpc.PrevLogSenderId && r.log[rpc.PrevLogIndex].Timestamp != rpc.PrevLogTimestamp) {
@@ -140,7 +150,9 @@ func (r *Replica) broadcastReplicateEntries() {
 	r.leaderState.lastRepEntriesTimestamp = time.Now().UnixNano()
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
+			fmt.Println(r.Id, "HUHUHUHUHUH1", r.leaderState.repNextIndex)
 			prevLogIndex := int32(r.leaderState.repNextIndex[i]) - 1
+			fmt.Println("HUHUHUHUHUH2")
 
 			args := &ReplicateEntries{
 				SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),

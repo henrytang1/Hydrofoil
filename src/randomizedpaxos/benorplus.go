@@ -117,7 +117,7 @@ func (r *Replica) updateLogIfPossible(rpc ReplyMsg) bool {
 	return true
 }
 
-func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
+func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 	r.handleIncomingTerm(rpc)
 
 	if !r.updateLogIfPossible(rpc) {
@@ -125,7 +125,7 @@ func (r *Replica) handleBenOrBroadcast (rpc BenOrBroadcastMsg) {
 	}
 
 	// at this point, r.commitIndex >= int(rpc.GetCommitIndex())
-	if r.benOrState.benOrRunning && r.commitIndex == int(rpc.GetCommitIndex()) {
+	if r.commitIndex == int(rpc.GetCommitIndex()) && (r.benOrState.benOrRunning || rpc.GetIteration() > 0) {
 		if r.benOrState.benOrIteration < int(rpc.GetIteration()) {
 			if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
 				if r.leaderState.isLeader {
@@ -262,7 +262,7 @@ func (r *Replica) startBenOrConsensusStage() {
 	}
 }
 
-func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
+func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 	r.handleIncomingTerm(rpc)
 
 	if !r.updateLogIfPossible(rpc) {
@@ -430,13 +430,15 @@ func (r *Replica) handleBenOrConsensus (rpc BenOrConsensusMsg) {
 									potentialEntries = append(potentialEntries, r.log[i])
 								}
 								r.log = r.log[:benOrIndex]
+
+								r.inLog.add(newCommittedEntry)
+								r.log = append(r.log, newCommittedEntry)
+								r.pq.remove(newCommittedEntry)
 							}
 
 							for _, v := range(potentialEntries) {
 								if !r.seenBefore(v) { r.pq.push(v) }
 							}
-
-							r.log = append(r.log, newCommittedEntry)
 
 							if r.leaderState.isLeader {
 								for !r.pq.isEmpty() {

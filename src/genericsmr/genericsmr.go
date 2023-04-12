@@ -49,9 +49,16 @@ type IsConnectedStatus struct {
 	Connected	map[int]bool
 }
 
+type RepCommand struct {
+	ServerId int
+	Command  state.Command
+}
+
 type Testing struct { // for testing purposes only
 	IsProduction bool
 	IsConnected  IsConnectedStatus
+	RequestChan   chan state.Command
+	ResponseChan  chan RepCommand
 }
 
 type Replica struct {
@@ -122,13 +129,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		make(chan bool, 1200),
 		make(chan *Client, CHAN_BUFFER_SIZE),
 		make(chan *GetView, CHAN_BUFFER_SIZE),
-		Testing{true, IsConnectedStatus{Connected: make(map[int]bool)}},
-	}
-
-	for i := 0; i < r.N; i++ {
-		r.TestingState.IsConnected.Mu.Lock()
-		r.TestingState.IsConnected.Connected[i] = true
-		r.TestingState.IsConnected.Mu.Unlock()
+		Testing{true, IsConnectedStatus{Connected: make(map[int]bool)}, nil, nil},
 	}
 
 	var err error
@@ -177,6 +178,13 @@ func (r *Replica) ConnectToPeersSim(serverId int, simConn *SimConn) {
 	r.Alive[serverId] = true
 	r.PeerReaders[serverId] = bufio.NewReader(simConn)
 	r.PeerWriters[serverId] = bufio.NewWriter(simConn)
+
+	if !r.TestingState.IsProduction {
+		r.TestingState.IsConnected.Mu.Lock()
+		r.TestingState.IsConnected.Connected[serverId] = true
+		dlog.Println("server", r.Id, "connected to server", serverId)
+		r.TestingState.IsConnected.Mu.Unlock()
+	}
 }
 
 func (r *Replica) ConnectListenToPeers() {
@@ -365,7 +373,7 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 
 		// 	}
 		// }
-		fmt.Println("Replica", r.Id, "is waiting for message from replica", rid)
+		// fmt.Println("Replica", r.Id, "is waiting for message from replica", rid)
 
 		// if !r.IsProduction {
 		// 	for _, err := reader.Peek(1); err != nil; _, err = reader.Peek(1) {
@@ -409,7 +417,7 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 
 		default:
 			// NOTE: sends value here
-			fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType)
+			// fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType)
 
 			// if msgType, err = reader.ReadByte(); err != nil {
 			// 	break
@@ -442,7 +450,6 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 				if err = obj.Unmarshal(reader); err != nil {
 					break
 				}
-				fmt.Println("wut", obj)
 				rpair.Chan <- obj
 			} else {
 				log.Println("Error: received unknown message type")
@@ -596,7 +603,6 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 	w.WriteByte(code)
 	msg.Marshal(w)
 	w.Flush()
-	fmt.Println("SendMsg", peerId, code)
 }
 
 func (r *Replica) SendMsgNoFlush(peerId int32, code uint8, msg fastrpc.Serializable) {

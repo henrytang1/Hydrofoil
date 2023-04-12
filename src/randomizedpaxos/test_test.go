@@ -1,7 +1,6 @@
 package randomizedpaxos
 
 import (
-	"dlog"
 	"fmt"
 	"testing"
 	"time"
@@ -13,18 +12,41 @@ import (
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
 
+const electionTimeout = 150
+const heartbeatTimeout = 15
+const benOrStartTimeout = 50
+const benOrResendTimeout = 10
+
 func TestInitialElection(t *testing.T) {
-	replica := NewReplica(0, make([]string, 3), false, false, false, false, false)
+	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
+	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
 
-	// fmt.Println(replica.heartbeatTimer)
-	// replica.heartbeatTimer = time.NewTimer(time.Duration(6000) * time.Millisecond)
-	setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
+	// <-replica.heartbeatTimer.timer.C
+	// fmt.Println("hello")
 
-	<-replica.heartbeatTimer.timer.C
-	fmt.Println("hello")
+	// dlog.Println("TEST")
 
-	dlog.Println("TEST")
+	servers := 3
+	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+	cfg.runReplicas()
 
+	// defer cfg.cleanup()
+
+	fmt.Println("Test: initial election...")
+
+	// is a leader elected?
+	cfg.checkOneLeader()
+
+	// // does the leader+Term stay the same there is no failure?
+	// term1 := cfg.checkTerms()
+	// time.Sleep(2 * RaftElectionTimeout)
+	// term2 := cfg.checkTerms()
+	// if term1 != term2 {
+	// 	fmt.Println("warning: Term changed even though there were no failures")
+	// }
+
+	fmt.Println("... Passed")
+}
 
 
 	// asdf := newExtendedPriorityQueue()
@@ -188,6 +210,3 @@ func TestInitialElection(t *testing.T) {
 	// c.Flush()
 	// bs, _ = io.ReadAll(b)
 	// fmt.Println(string(bs))
-
-	fmt.Println("... Passed")
-}

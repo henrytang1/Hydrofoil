@@ -5,6 +5,7 @@ import (
 	"dlog"
 	"encoding/binary"
 	"fastrpc"
+	"fmt"
 	"genericsmr"
 	"genericsmrproto"
 	"io"
@@ -162,8 +163,8 @@ type Replica struct {
 	benOrBroadcastReplyRPC      	uint8
 	benOrConsensusRPC      		uint8
 	benOrConsensusReplyRPC     	uint8
-	getCommittedDataRPC		uint8
-	sendCommittedDataRPC		uint8
+	// getCommittedDataRPC		uint8
+	// sendCommittedDataRPC		uint8
 
 	term				int
 	votedFor			int
@@ -179,20 +180,20 @@ type Replica struct {
 	benOrState			BenOrState
 	candidateState			CandidateState
 
-	recentlySentGetCommit		bool // true if we've recently sent out a GetCommittedData request
+	// recentlySentGetCommit		bool // true if we've recently sent out a GetCommittedData request
 
 	electionTimeout         	int
 	heartbeatTimeout         	int
 	benOrStartTimeout		int
 	benOrResendTimeout		int
-	getCommittedTimeout		int // time before we issue another GetCommitData request
+	// getCommittedTimeout		int // time before we issue another GetCommitData request
 
 	clientWriters      		map[uint32]*bufio.Writer
 	heartbeatTimer			*ServerTimer
 	electionTimer			*ServerTimer
 	benOrStartTimer			*ServerTimer
 	benOrResendTimer		*ServerTimer
-	getCommittedTimer		*ServerTimer
+	// getCommittedTimer		*ServerTimer
 }
 
 
@@ -300,8 +301,8 @@ var emptyBenOrState = BenOrState{
 	biasedCoin: false,
 }
 
-// Entry point
-func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
+func NewReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, 
+	isProduction bool, electionTimeout int, heartbeatTimeout int, benOrStartTimeout int, benOrResendTimeout int) *Replica {
 	r := &Replica{
 		Replica: genericsmr.NewReplica(id, peerAddrList, thrifty, exec, dreply),
 		replicateEntriesChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
@@ -322,8 +323,8 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		benOrBroadcastReplyRPC: 0,
 		benOrConsensusRPC: 0,
 		benOrConsensusReplyRPC: 0,
-		getCommittedDataRPC: 0,
-		sendCommittedDataRPC: 0,
+		// getCommittedDataRPC: 0,
+		// sendCommittedDataRPC: 0,
 
 		term: 0,
 		votedFor: -1,
@@ -339,24 +340,29 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		benOrState: emptyBenOrState,
 		candidateState: emptyCandidateState,
 
-		recentlySentGetCommit: false,
+		// recentlySentGetCommit: false,
 
-		electionTimeout: 0, // TODO: NEED TO UPDATE THESE VALUES
-		heartbeatTimeout: 0,
-		benOrStartTimeout: 0,
-		benOrResendTimeout: 0,
-		getCommittedTimeout: 0,
+		electionTimeout: electionTimeout,
+		heartbeatTimeout: heartbeatTimeout,
+		benOrStartTimeout: benOrStartTimeout,
+		benOrResendTimeout: benOrResendTimeout,
+		// getCommittedTimeout: getCommittedTimeout,
 
 		clientWriters: make(map[uint32]*bufio.Writer),
 		heartbeatTimer: newTimer(),
 		electionTimer: newTimer(),
 		benOrStartTimer: newTimer(),
 		benOrResendTimer: newTimer(),
-		getCommittedTimer: newTimer(),
+		// getCommittedTimer: newTimer(),
 	}
 
 	r.Durable = durable
 	r.TestingState.IsProduction = isProduction
+	r.TestingState.IsConnected.Mu.Lock()
+	for i := 0; i < r.N; i++ {
+		r.TestingState.IsConnected.Connected[i] = false
+	}
+	r.TestingState.IsConnected.Mu.Unlock()
 
 	r.replicateEntriesRPC = r.RegisterRPC(new(ReplicateEntries), r.replicateEntriesChan)
 	r.replicateEntriesReplyRPC = r.RegisterRPC(new(ReplicateEntriesReply), r.replicateEntriesReplyChan)
@@ -369,9 +375,22 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 	// r.getCommittedDataRPC = r.RegisterRPC(new(GetCommittedData), r.getCommittedDataChan)
 	// r.sendCommittedDataRPC = r.RegisterRPC(new(SendCommittedData), r.sendCommittedDataChan)
 
-	// go r.run()
+	if r.TestingState.IsProduction {
+		go r.run()
+	}
+
+	dlog.Println("Replica", r.Id)
 
 	return r
+}
+
+func NewReplicaMoreParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
+	return NewReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 150, 15, 50, 10)
+}
+
+// Entry point
+func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
+	return NewReplicaMoreParam(id, peerAddrList, thrifty, exec, dreply, durable, true)
 }
 
 // func (r *Replica) clock() {
@@ -381,19 +400,34 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 // 	}
 // }
 
-func (r *Replica) runReplica() {
-	var timeout int
-	timeout = rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-	setTimer(r.electionTimer, time.Duration(timeout) * time.Millisecond)
-	
-	timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
-	setTimer(r.benOrStartTimer, time.Duration(timeout) * time.Millisecond)
+func (r *Replica) getState() (bool, int, int, int) {
+	return r.leaderState.isLeader, r.term, r.logTerm, r.commitIndex
+}
 
-	go r.runInNewProcess()
+func (r *Replica) executeCommand(i int) {
+	if r.TestingState.IsProduction {
+		if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
+			val := r.log[i].Data.Execute(r.State)
+			if (r.log[i].SenderId == r.Id && !r.inLog.isCommitted(r.log[i])) { 
+				propreply := &genericsmrproto.ProposeReplyTS{
+					OK: True,
+					CommandId: r.log[i].Data.OpId,
+					Value: val,
+					Timestamp: r.log[i].Timestamp} // TODO: check if timestamp is correct
+				r.ReplyProposeTS(propreply, writer)
+			}
+		}
+	} else {
+		r.TestingState.ResponseChan <- genericsmr.RepCommand{int(r.Id), r.log[i].Data}
+	}
+}
+
+func (r *Replica) runReplica() {
+	go r.run()
 }
 
 /* Main event processing loop */
-func (r *Replica) runInNewProcess() {
+func (r *Replica) run() {
 	if (r.TestingState.IsProduction) { 
 		r.ConnectToPeers()
 
@@ -401,6 +435,15 @@ func (r *Replica) runInNewProcess() {
 
 		go r.WaitForClientConnections() // TODO: remove for testing 
 	}
+
+	var timeout int
+	timeout = rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
+	setTimer(r.electionTimer, time.Duration(timeout) * time.Millisecond)
+	
+	timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+	setTimer(r.benOrStartTimer, time.Duration(timeout) * time.Millisecond)
+
+	dlog.Println("Starting replica", r.Id)
 
 	for !r.Shutdown {
 		if r.leaderState.isLeader {
@@ -411,17 +454,7 @@ func (r *Replica) runInNewProcess() {
 
 		// Execution of the leader's state machine
 		for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
-			if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
-				val := r.log[i].Data.Execute(r.State)
-				if (r.log[i].SenderId == r.Id && !r.inLog.isCommitted(r.log[i])) { 
-					propreply := &genericsmrproto.ProposeReplyTS{
-						OK: True,
-						CommandId: r.log[i].Data.OpId,
-						Value: val,
-						Timestamp: r.log[i].Timestamp} // TODO: check if timestamp is correct
-					r.ReplyProposeTS(propreply, writer)
-				}
-			}
+			r.executeCommand(i)
 		}
 		r.lastApplied = r.commitIndex
 
@@ -431,6 +464,10 @@ func (r *Replica) runInNewProcess() {
 				dlog.Printf("Client %d registering\n", client.ClientId)
 				break
 
+			case cmd := <-r.TestingState.RequestChan:
+				r.handleProposeCommand(cmd)
+				break
+
 			// case <-clockChan:
 			// 	//activate the new proposals channel
 			// 	onOffProposeChan = r.ProposeChan
@@ -438,7 +475,7 @@ func (r *Replica) runInNewProcess() {
 
 			case propose := <-r.ProposeChan:
 				//got a Propose from a client
-				dlog.Printf("Proposal with op %d\n", propose.Command.Op)
+				dlog.Printf("Replica %d received proposal with op %d\n", r.Id, propose.Command.Op)
 				r.handlePropose(propose)
 				//deactivate the new proposals channel to prioritize the handling of protocol messages
 				// if MAX_BATCH > 100 {
@@ -449,56 +486,56 @@ func (r *Replica) runInNewProcess() {
 			case replicateEntriesS := <-r.replicateEntriesChan:
 				replicateEntries := replicateEntriesS.(*ReplicateEntries)
 				//got a ReplicateEntries message
-				dlog.Printf("Received ReplicateEntries from replica %d, for instance %d\n", replicateEntries.SenderId, replicateEntries.Term)
+				dlog.Printf("Replica %d received ReplicateEntries from replica %d, for term %d\n", r.Id, replicateEntries.SenderId, replicateEntries.Term)
 				r.handleReplicateEntries(replicateEntries)
 				break
 
 			case replicateEntriesReplyS := <-r.replicateEntriesReplyChan:
 				replicateEntriesReply := replicateEntriesReplyS.(*ReplicateEntriesReply)
 				//got a ReplicateEntriesReply message
-				dlog.Printf("Received ReplicateEntriesReply from replica %d\n", replicateEntriesReply.Term)
+				dlog.Printf("Replica %d received ReplicateEntriesReply from replica %d, for term %d\n", r.Id, replicateEntriesReply.SenderId, replicateEntriesReply.Term)
 				r.handleReplicateEntriesReply(replicateEntriesReply)
 				break
 
 			case requestVoteS := <-r.requestVoteChan:
 				requestVote := requestVoteS.(*RequestVote)
 				//got a RequestVote message
-				dlog.Printf("Received RequestVote from replica %d, for instance %d\n", requestVote.SenderId, requestVote.Term)
+				dlog.Printf("Replica %d receceived RequestVote from replica %d, for term %d\n", r.Id, requestVote.SenderId, requestVote.Term)
 				r.handleRequestVote(requestVote)
 				break
 
 			case requestVoteReplyS := <-r.requestVoteReplyChan:
 				requestVoteReply := requestVoteReplyS.(*RequestVoteReply)
 				//got a RequestVoteReply message
-				dlog.Printf("Received RequestVoteReply from replica %d\n", requestVoteReply.Term)
+				dlog.Printf("Replica %d received RequestVoteReply from replica %d, for term %d\n", r.Id, requestVoteReply.SenderId, requestVoteReply.Term)
 				r.handleRequestVoteReply(requestVoteReply)
 				break
 
 			case benOrBroadcastS := <-r.benOrBroadcastChan:
 				benOrBroadcast := benOrBroadcastS.(*BenOrBroadcast)
 				//got a BenOrBroadcast message
-				dlog.Printf("Received BenOrBroadcast from replica %d, for instance %d\n", benOrBroadcast.SenderId, benOrBroadcast.Term)
+				dlog.Printf("Replica %d receceived BenOrBroadcast from replica %d, for term %d\n", r.Id, benOrBroadcast.SenderId, benOrBroadcast.Term)
 				r.handleBenOrBroadcast(benOrBroadcast)
 				break
 
 			case benOrBroadcastReplyS := <-r.benOrBroadcastReplyChan:
 				benOrBroadcastReply := benOrBroadcastReplyS.(*BenOrBroadcastReply)
 				//got a BenOrBroadcastReply message
-				dlog.Printf("Received BenOrBroadcastReply from replica %d\n", benOrBroadcastReply.Term)
+				dlog.Printf("Replica %d received BenOrBroadcastReply from replica %d, for term %d\n", r.Id, benOrBroadcastReply.SenderId, benOrBroadcastReply.Term)
 				r.handleBenOrBroadcast(benOrBroadcastReply)
 				break
 
 			case benOrConsensusS := <-r.benOrConsensusChan:
 				benOrConsensus := benOrConsensusS.(*BenOrConsensus)
 				//got a BenOrConsensus message
-				dlog.Printf("Received BenOrConsensus from replica %d, for instance %d\n", benOrConsensus.SenderId, benOrConsensus.Term)
+				dlog.Printf("Replica %d received BenOrConsensus from replica %d, for term %d\n", r.Id, benOrConsensus.SenderId, benOrConsensus.Term)
 				r.handleBenOrConsensus(benOrConsensus)
 				break
 
 			case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
 				benOrConsensusReply := benOrConsensusReplyS.(*BenOrConsensusReply)
 				//got a BenOrConsensusReply message
-				dlog.Printf("Received BenOrConsensusReply from replica %d\n", benOrConsensusReply.Term)
+				dlog.Printf("Replica %d received BenOrConsensusReply from replica %d\n, for term %d", r.Id, benOrConsensusReply.SenderId, benOrConsensusReply.Term)
 				r.handleBenOrConsensus(benOrConsensusReply)
 				break
 
@@ -531,45 +568,50 @@ func (r *Replica) runInNewProcess() {
 			// 	break
 			
 			case <- r.heartbeatTimer.timer.C:
+				r.heartbeatTimer.active = false
 				//got a heartbeat timeout
 				r.sendHeartbeat()
 			
 			case <- r.electionTimer.timer.C:
+				r.electionTimer.active = false
 				//got an election timeout
 				r.startElection()
 			
 			case <- r.benOrStartTimer.timer.C:
+				r.benOrStartTimer.active = false
 				//got a benOrStartWait timeout
 				r.startBenOrPlus()
 
 			case <- r.benOrResendTimer.timer.C:
+				r.benOrResendTimer.active = false
 				//got a benOrResend timeout
 				r.resendBenOrTimer()
 			
-			case <- r.getCommittedTimer.timer.C:
-				//got a getCommitted timeout
-				r.clearGetCommittedTimer()
+			// case <- r.getCommittedTimer.timer.C:
+			// 	//got a getCommitted timeout
+			// 	r.clearGetCommittedTimer()
 		}
 	}
 }
 
-func (r *Replica) sendHeartbeat () {
+func (r *Replica) sendHeartbeat() {
 	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
 	setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 	
+	fmt.Printf("Replica %d sending heartbeat\n", r.Id)
 	r.broadcastReplicateEntries()
 	// else {
 	// 	r.broadcastInfo()
 	// }
 }
 
-func (r *Replica) clearGetCommittedTimer() {
-	clearTimer(r.getCommittedTimer)
-}
+// func (r *Replica) clearGetCommittedTimer() {
+// 	clearTimer(r.getCommittedTimer)
+// }
 
-func (r *Replica) handlePropose(propose *genericsmr.Propose) {
+func (r *Replica) handleProposeCommand(cmd state.Command) {
 	newLogEntry := Entry{
-		Data: propose.Command,
+		Data: cmd,
 		SenderId: r.Id,
 		Term: -1,
 		Index: -1,
@@ -585,6 +627,10 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 	} else {
 		r.pq.push(newLogEntry)
 	}
+}
+
+func (r *Replica) handlePropose(propose *genericsmr.Propose) {
+	r.handleProposeCommand(propose.Command)
 }
 
 // func (r *Replica) getUpToDateData () {

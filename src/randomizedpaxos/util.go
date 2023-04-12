@@ -1,6 +1,7 @@
 package randomizedpaxos
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -149,11 +150,13 @@ func newTimer() *ServerTimer {
 // Sets timer to duration. If timer is already active, it is stopped and reset.
 func setTimer(t *ServerTimer, d time.Duration) {
 	if t.active {
+		fmt.Println("Timer already active")
 		if !t.timer.Stop() {
 			<-t.timer.C
 		}
 	}
 	t.timer.Reset(d)
+	t.active = true
 }
 
 func clearTimer(t *ServerTimer) {
@@ -169,6 +172,7 @@ func (r *Replica) handleIncomingTerm(rpc RPC) {
 	if r.term < int(rpc.GetTerm()) {
 		r.term = int(rpc.GetTerm())
 		if r.leaderState.isLeader {
+			fmt.Println("Leader", r.Id, "became follower")
 			r.leaderState = emptyLeaderState
 			clearTimer(r.heartbeatTimer)
 
