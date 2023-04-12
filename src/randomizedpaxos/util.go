@@ -1,9 +1,11 @@
 package randomizedpaxos
 
 import (
-	"fmt"
+	"dlog"
 	"log"
 	"math/rand"
+	"state"
+	"strconv"
 	"time"
 )
 
@@ -150,7 +152,6 @@ func newTimer() *ServerTimer {
 // Sets timer to duration. If timer is already active, it is stopped and reset.
 func setTimer(t *ServerTimer, d time.Duration) {
 	if t.active {
-		fmt.Println("Timer already active")
 		if !t.timer.Stop() {
 			<-t.timer.C
 		}
@@ -172,7 +173,7 @@ func (r *Replica) handleIncomingTerm(rpc RPC) {
 	if r.term < int(rpc.GetTerm()) {
 		r.term = int(rpc.GetTerm())
 		if r.leaderState.isLeader {
-			fmt.Println("Leader", r.Id, "became follower")
+			dlog.Println("Leader", r.Id, "became follower")
 			r.leaderState = emptyLeaderState
 			clearTimer(r.heartbeatTimer)
 
@@ -275,6 +276,22 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 
 func entryEqual (e1 Entry, e2 Entry) bool {
 	return e1.SenderId == e2.SenderId && e1.Timestamp == e2.Timestamp
+}
+
+func logToString (log []Entry) string {
+	var s string = ""
+	for i := 0; i < len(log); i++ {
+		s += strconv.Itoa(int(log[i].Data.OpId)) + " "
+	}
+	return s
+}
+
+func commandToString (log []state.Command) string {
+	var s string = ""
+	for i := 0; i < len(log); i++ {
+		s += strconv.Itoa(int(log[i].OpId)) + " "
+	}
+	return s
 }
 
 // func (r *Replica) addEntryToLogIndex (entry Entry, idx int) {

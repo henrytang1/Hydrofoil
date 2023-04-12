@@ -1,6 +1,7 @@
 package randomizedpaxos
 
 import (
+	"dlog"
 	"fmt"
 	"log"
 	"math/rand"
@@ -19,7 +20,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		// NewRequestedIndex is not used because the leader will either switch to a follower (because of the term) or ignore this reply (because it has an older LeaderTimestamp)
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex, Entries: entries, PQEntries: r.pq.extractList(),
+			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 			Success: False, NewRequestedIndex: -1,
 		}
 
@@ -46,7 +47,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		// NewRequestedIndex is not used because the leader will either switch to a follower (because of the term) or ignore this reply (because it has an older LeaderTimestamp)
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex, Entries: entries, PQEntries: r.pq.extractList(),
+			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 			Success: False, NewRequestedIndex: int32(r.commitIndex),
 		}
 
@@ -59,7 +60,9 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 	oldCommitIndex := r.commitIndex
 
+	dlog.Println("Replica", r.Id, "is accepting entries from", rpc.SenderId, "before log", logToString(r.log))
 	potentialEntries := r.replaceExistingLog(rpc, int(rpc.PrevLogIndex) + 1)
+	dlog.Println("Replica", r.Id, "is accepting entries from", rpc.SenderId, "after log", logToString(r.log))
 
 	for _, v := range(potentialEntries) {
 		if !r.seenBefore(v) { r.pq.push(v) }
@@ -87,7 +90,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	if !r.benOrState.benOrRunning || r.benOrState.benOrStage == Broadcasting {
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex, Entries: entries, PQEntries: r.pq.extractList(),
+			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 			Success: True, NewRequestedIndex: rpc.GetStartIndex() + int32(len(rpc.Entries)),
 		}
 
@@ -95,7 +98,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	} else {
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex, Entries: entries, PQEntries: r.pq.extractList(),
+			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 			Success: False, NewRequestedIndex: int32(r.commitIndex) + 1,
 		}
 
@@ -105,11 +108,12 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	r.handleIncomingTerm(rpc)
-	fmt.Println("Replica", r.Id, "sees", rpc.GetTerm(), rpc.GetSuccess(), rpc.GetCommitIndex(), rpc.NewRequestedIndex)
+	dlog.Println("Replica", r.Id, "sees term", rpc.GetTerm(), "success", rpc.GetSuccess(), "commitidx", rpc.GetCommitIndex(), "newreqindex", rpc.NewRequestedIndex, "from", rpc.SenderId)
 	if r.term > int(rpc.Term) || r.leaderState.lastRepEntriesTimestamp != rpc.LeaderTimestamp {
 		return
 	}
 
+	fmt.Println("Leader", r.Id, ": ", r.commitIndex, r.logTerm, len(r.log), ", Replica", rpc.SenderId, ": ", rpc.CommitIndex, rpc.LogTerm, rpc.LogLength)
 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
 		// todo: leader needs to handle the case where the committed entries match up with its own!
 		r.updateLogFromRPC(rpc)
@@ -140,7 +144,7 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 			if rpc.Success == True {
 				r.leaderState.repMatchIndex[rpc.SenderId] = int(rpc.NewRequestedIndex) - 1
 				r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
-				fmt.Println("BRUH", len(r.log))
+				dlog.Println("BRUH", len(r.log))
 			} else {
 				r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
 			}
@@ -155,9 +159,10 @@ func (r *Replica) broadcastReplicateEntries() {
 	r.leaderState.lastRepEntriesTimestamp = time.Now().UnixNano()
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
-			// fmt.Println(r.Id, "HUHUHUHUHUH1", r.leaderState.repNextIndex)
+			// dlog.Println(r.Id, "HUHUHUHUHUH1", r.leaderState.repNextIndex)
 			prevLogIndex := int32(r.leaderState.repNextIndex[i]) - 1
-			// fmt.Println("HUHUHUHUHUH2")
+			dlog.Println("server", r.Id, "has data", logToString(r.log), "and is sending to", i, "with prevLogIndex", prevLogIndex, "and nextIndex", r.leaderState.repNextIndex[i], "and matchIndex", r.leaderState.repMatchIndex[i], "and commit Index", r.commitIndex)
+			// dlog.Println("HUHUHUHUHUH2")
 
 			args := &ReplicateEntries{
 				SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),

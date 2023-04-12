@@ -1,6 +1,7 @@
 package randomizedpaxos
 
 import (
+	"fmt"
 	"genericsmr"
 	"io"
 	"reflect"
@@ -35,6 +36,7 @@ func (cfg *config) connect(i int) {
 		}
 	}
 	cfg.connectedToNet[i] = true
+	fmt.Println("Server", i, " connected to network")
 }
 
 func (cfg *config) disconnect(i int) {
@@ -49,6 +51,7 @@ func (cfg *config) disconnect(i int) {
 		}
 	}
 	cfg.connectedToNet[i] = false
+	fmt.Println("Server", i, " disconnected from network")
 }
 
 func makeNetwork(n int) *network {
@@ -102,7 +105,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 
 	// create a full set of Rafts.
 	for i := 0; i < n; i++ {
-		cfg.replicas[i] = NewReplicaMoreParam(i, make([]string, n), false, false, false, false, false)
+		cfg.replicas[i] = newReplicaMoreParam(i, make([]string, n), false, false, false, false, false)
 	}
 
 	cfg.start()
@@ -131,7 +134,7 @@ func make_config_full(t *testing.T, n int, unreliable bool,
 
 	// create a full set of Rafts.
 	for i := 0; i < n; i++ {
-		cfg.replicas[i] = NewReplicaFullParam(i, make([]string, n), false, false, false, false, false, 
+		cfg.replicas[i] = newReplicaFullParam(i, make([]string, n), false, false, false, false, false, 
 							electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
 	}
 
@@ -221,11 +224,16 @@ func (cfg *config) checkLogData() []state.Command {
 	var logData []state.Command
 	logData = nil
 	for i := 0; i < cfg.n; i++ {
-		if logData == nil {
-			logData = cfg.repExecutions[i]
-		} else {
-			if !reflect.DeepEqual(logData, cfg.repExecutions[i]) {
-				cfg.t.Fatal("Log data is not the same for all replicas")
+		if cfg.connectedToNet[i] {
+			if logData == nil {
+				logData = cfg.repExecutions[i]
+			} else {
+				if !reflect.DeepEqual(logData, cfg.repExecutions[i]) {
+					for j := 0; j < cfg.n; j++ {
+						fmt.Println("Replica ", j, " log: ", commandToString(cfg.repExecutions[j]))
+					}
+					cfg.t.Fatal("Log data is not the same for all replicas")
+				}
 			}
 		}
 	}
@@ -237,7 +245,13 @@ func (cfg *config) sendCommand(rep int, cmdId int) {
 	cfg.requestChan[rep] <- cmd
 }
 
-func (cfg *config) sendCommandLeader(cmdId int) bool {
+func (cfg *config) cleanup() {
+	for i := 0; i < cfg.n; i++ {
+		cfg.replicas[i].shutdown()
+	}
+}
+
+func (cfg *config) sendCommandLeader(cmdId int, expectedServers int) bool {
 	t0 := time.Now()
 	starts := 0
 	for time.Since(t0).Seconds() < 5 {
@@ -249,6 +263,7 @@ func (cfg *config) sendCommandLeader(cmdId int) bool {
 				isLeader, _, _, _ := cfg.replicas[starts].getState()
 				if isLeader {
 					cfg.sendCommand(starts, cmdId)
+					fmt.Println("Sent command", cmdId, "to", starts)
 					index = starts
 					break
 				}
@@ -260,20 +275,26 @@ func (cfg *config) sendCommandLeader(cmdId int) bool {
 			// submitted our command; wait a while for agreement.
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
+				numFound := 0
 				for i := 0; i < cfg.n; i++ {
 					logData := cfg.repExecutions[i]
 					for j := 0; j < len(logData); j++ {
 						if logData[j].ClientId == CLIENTID && logData[j].OpId == int32(cmdId) {
-							return true
+							numFound++
 						}
 					}
 				}
+				if numFound >= expectedServers {
+					return true
+				}
 				time.Sleep(20 * time.Millisecond)
 			}
-			return false
 		} else {
 			time.Sleep(50 * time.Millisecond)
 		}
+	}
+	for j := 0; j < cfg.n; j++ {
+		fmt.Println("Replica ", j, " log: ", cfg.repExecutions[j])
 	}
 	return false
 }

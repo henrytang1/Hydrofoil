@@ -10,50 +10,50 @@ import (
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
-const RaftElectionTimeout = 1000 * time.Millisecond
-
 const electionTimeout = 150
 const heartbeatTimeout = 15
 const benOrStartTimeout = 50
 const benOrResendTimeout = 10
 
-// func TestInitialElection(t *testing.T) {
-// 	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
-// 	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
+func TestInitialElection(t *testing.T) {
+	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
+	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
 
-// 	// <-replica.heartbeatTimer.timer.C
-// 	// fmt.Println("hello")
+	// <-replica.heartbeatTimer.timer.C
+	// fmt.Println("hello")
 
-// 	// dlog.Println("TEST")
+	// dlog.Println("TEST")
 
-// 	servers := 3
-// 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
-// 	cfg.runReplicas()
+	servers := 3
+	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+	cfg.runReplicas()
+	defer cfg.cleanup()
 
-// 	// defer cfg.cleanup()
+	// defer cfg.cleanup()
 
-// 	fmt.Println("Test: initial election...")
+	fmt.Println("Test: initial election...")
 
-// 	// is a leader elected?
-// 	leader1 := cfg.checkOneLeader()
-// 	cfg.disconnect(leader1)
+	// is a leader elected?
+	leader1 := cfg.checkOneLeader()
+	cfg.disconnect(leader1)
 
-// 	time.Sleep(2 * RaftElectionTimeout)
+	time.Sleep(4 * electionTimeout)
 
-// 	cfg.checkOneLeader()
-// 	cfg.connect(leader1)
+	cfg.checkOneLeader()
+	cfg.connect(leader1)
 
-// 	time.Sleep(2 * RaftElectionTimeout)
+	time.Sleep(4 * electionTimeout)
 
-// 	cfg.checkOneLeader()
+	cfg.checkOneLeader()
 
-// 	fmt.Println("... Passed")
-// }
+	fmt.Println("... Passed")
+}
 
 func TestBasicAgree(t *testing.T) {
 	servers := 3
 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
 	cfg.runReplicas()
+	defer cfg.cleanup()
 
 	fmt.Println("Test: basic agreement...")
 	cfg.checkOneLeader()
@@ -61,12 +61,53 @@ func TestBasicAgree(t *testing.T) {
 	fmt.Println("Testing agreement on 3 entries...")
 	iters := 3
 	for index := 1; index < iters+1; index++ {
-		res := cfg.sendCommandLeader(index * 100)
+		res := cfg.sendCommandLeader(index * 100, servers)
 		if !res {
 			t.Fatal("Failed agreement on entry")
 		}
 	}
 
+	fmt.Println(cfg.checkLogData())
+
+	fmt.Println("... Passed")
+}
+
+func TestFailAgree(t *testing.T) {
+	servers := 3
+	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+	cfg.runReplicas()
+	defer cfg.cleanup()
+
+	fmt.Println("Test: basic agreement...")
+	leader := cfg.checkOneLeader()
+
+	cfg.disconnect((leader + 1) % 3)
+
+	fmt.Println("Testing agreement on 2 entries (fail replica)...")
+	iters := 3
+	index := 1
+	for ; index < iters+1; index++ {
+		res := cfg.sendCommandLeader(index * 100, 2)
+		if !res {
+			t.Fatal("Failed agreement on entry")
+		}
+	}
+	fmt.Println(cfg.checkLogData())
+
+	cfg.connect((leader + 1) % 3)
+	time.Sleep(4 * electionTimeout)
+
+	leader = cfg.checkOneLeader()
+	cfg.disconnect(leader)
+
+	fmt.Println("Testing agreement on 2 entries (fail leader)...")
+	iters = 6
+	for index := 1; index < iters+1; index++ {
+		res := cfg.sendCommandLeader(index * 100, 2)
+		if !res {
+			t.Fatal("Failed agreement on entry")
+		}
+	}
 	fmt.Println(cfg.checkLogData())
 
 	fmt.Println("... Passed")

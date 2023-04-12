@@ -5,7 +5,6 @@ import (
 	"dlog"
 	"encoding/binary"
 	"fastrpc"
-	"fmt"
 	"genericsmr"
 	"genericsmrproto"
 	"io"
@@ -301,7 +300,7 @@ var emptyBenOrState = BenOrState{
 	biasedCoin: false,
 }
 
-func NewReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, 
+func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, 
 	isProduction bool, electionTimeout int, heartbeatTimeout int, benOrStartTimeout int, benOrResendTimeout int) *Replica {
 	r := &Replica{
 		Replica: genericsmr.NewReplica(id, peerAddrList, thrifty, exec, dreply),
@@ -384,13 +383,13 @@ func NewReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 	return r
 }
 
-func NewReplicaMoreParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
-	return NewReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 150, 15, 50, 10)
+func newReplicaMoreParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
+	return newReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 150, 15, 50, 10)
 }
 
 // Entry point
-func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
-	return NewReplicaMoreParam(id, peerAddrList, thrifty, exec, dreply, durable, true)
+func newReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
+	return newReplicaMoreParam(id, peerAddrList, thrifty, exec, dreply, durable, true)
 }
 
 // func (r *Replica) clock() {
@@ -449,8 +448,8 @@ func (r *Replica) run() {
 		if r.leaderState.isLeader {
 			matchIndices := append(make([]int, 0, r.N), r.leaderState.repMatchIndex...)
 			sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
-			fmt.Println("matchIndices", matchIndices)
-			r.commitIndex = matchIndices[r.N/2+1]
+			dlog.Println("matchIndices", matchIndices)
+			r.commitIndex = max(r.commitIndex, matchIndices[r.N/2])
 		}
 
 		// Execution of the leader's state machine
@@ -461,11 +460,12 @@ func (r *Replica) run() {
 
 		select {
 			case client := <-r.RegisterClientIdChan:
-				r.registerClient(client.ClientId, client.Reply)
 				dlog.Printf("Client %d registering\n", client.ClientId)
+				r.registerClient(client.ClientId, client.Reply)
 				break
 
 			case cmd := <-r.TestingState.RequestChan:
+				dlog.Printf("Replica %d received testing command with op %d\n", r.Id, cmd.OpId)
 				r.handleProposeCommand(cmd)
 				break
 
@@ -487,7 +487,7 @@ func (r *Replica) run() {
 			case replicateEntriesS := <-r.replicateEntriesChan:
 				replicateEntries := replicateEntriesS.(*ReplicateEntries)
 				//got a ReplicateEntries message
-				dlog.Printf("Replica %d received ReplicateEntries from replica %d, for term %d\n", r.Id, replicateEntries.SenderId, replicateEntries.Term)
+				dlog.Printf("Replica %d received ReplicateEntries from replica %d, for term %d with log up to idx %d\n", r.Id, replicateEntries.SenderId, replicateEntries.Term, int(replicateEntries.PrevLogIndex) + len(replicateEntries.Entries))
 				r.handleReplicateEntries(replicateEntries)
 				break
 
@@ -593,17 +593,26 @@ func (r *Replica) run() {
 			// 	r.clearGetCommittedTimer()
 		}
 	}
+
+	clearTimer(r.heartbeatTimer)
+	clearTimer(r.electionTimer)
+	clearTimer(r.benOrStartTimer)
+	clearTimer(r.benOrResendTimer)
 }
 
 func (r *Replica) sendHeartbeat() {
 	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
 	setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
 	
-	fmt.Printf("Replica %d sending heartbeat\n", r.Id)
+	dlog.Printf("Replica %d sending heartbeat\n", r.Id)
 	r.broadcastReplicateEntries()
 	// else {
 	// 	r.broadcastInfo()
 	// }
+}
+
+func (r *Replica) shutdown() {
+	r.Shutdown = true
 }
 
 // func (r *Replica) clearGetCommittedTimer() {
@@ -627,7 +636,7 @@ func (r *Replica) handleProposeCommand(cmd state.Command) {
 		r.log = append(r.log, newLogEntry)
 		r.leaderState.repNextIndex[r.Id] = len(r.log)
 		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-		fmt.Println("I HATE THIS", len(r.log))
+		dlog.Println("I HATE THIS", len(r.log))
 	} else {
 		r.pq.push(newLogEntry)
 	}
@@ -657,6 +666,7 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
 	potentialEntries := make([]Entry, 0)
 
+	dlog.Println("Replica", r.Id, "replacing existing log", len(r.log), rpc.GetStartIndex(), len(rpc.GetEntries()), logStartIdx)
 	firstEntryIndex := int(rpc.GetStartIndex())
 	changes := false
 	for i := logStartIdx - firstEntryIndex; i < len(rpc.GetEntries()); i++ {

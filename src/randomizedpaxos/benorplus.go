@@ -528,17 +528,17 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 }
 
 /************************************** BenOr Reply **********************************************/
-func (r *Replica) sendBenOrReply(senderId int32, commitIndex int) {
+func (r *Replica) sendBenOrReply(senderId int32, rpcCommitIndex int) {
 	entries := make([]Entry, 0)
-	if commitIndex + 1 < len(r.log) {
-		entries = r.log[commitIndex + 1:]
+	if rpcCommitIndex + 1 < len(r.log) {
+		entries = r.log[rpcCommitIndex + 1:]
 	}
 
 	if r.benOrState.benOrStage == NotRunning || r.benOrState.benOrStage == Broadcasting {
 		args := &BenOrBroadcastReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			BenOrMsgValid: convertBoolToInteger(r.benOrState.benOrRunning), Iteration: int32(r.benOrState.benOrIteration), BroadcastEntry: r.benOrState.benOrBroadcastEntry,
-			StartIndex: int32(r.commitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
+			StartIndex: int32(rpcCommitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
 		}
 		r.SendMsg(senderId, r.benOrBroadcastReplyRPC, args)
 	}
@@ -548,6 +548,7 @@ func (r *Replica) sendBenOrReply(senderId int32, commitIndex int) {
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			BenOrMsgValid: True, Iteration: int32(r.benOrState.benOrIteration), Phase: int32(r.benOrState.benOrPhase), Stage: r.benOrState.benOrStage,
 			Vote: r.benOrState.benOrVote, HaveMajEntry: convertBoolToInteger(r.benOrState.haveMajEntry), MajEntry: r.benOrState.benOrMajEntry,
+			StartIndex: int32(rpcCommitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
 		}
 		r.SendMsg(senderId, r.benOrBroadcastReplyRPC, args)
 	}
