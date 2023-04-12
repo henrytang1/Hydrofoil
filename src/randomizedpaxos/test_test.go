@@ -17,37 +17,60 @@ const heartbeatTimeout = 15
 const benOrStartTimeout = 50
 const benOrResendTimeout = 10
 
-func TestInitialElection(t *testing.T) {
-	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
-	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
+// func TestInitialElection(t *testing.T) {
+// 	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
+// 	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
 
-	// <-replica.heartbeatTimer.timer.C
-	// fmt.Println("hello")
+// 	// <-replica.heartbeatTimer.timer.C
+// 	// fmt.Println("hello")
 
-	// dlog.Println("TEST")
+// 	// dlog.Println("TEST")
 
+// 	servers := 3
+// 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+// 	cfg.runReplicas()
+
+// 	// defer cfg.cleanup()
+
+// 	fmt.Println("Test: initial election...")
+
+// 	// is a leader elected?
+// 	leader1 := cfg.checkOneLeader()
+// 	cfg.disconnect(leader1)
+
+// 	time.Sleep(2 * RaftElectionTimeout)
+
+// 	cfg.checkOneLeader()
+// 	cfg.connect(leader1)
+
+// 	time.Sleep(2 * RaftElectionTimeout)
+
+// 	cfg.checkOneLeader()
+
+// 	fmt.Println("... Passed")
+// }
+
+func TestBasicAgree(t *testing.T) {
 	servers := 3
 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
 	cfg.runReplicas()
 
-	// defer cfg.cleanup()
-
-	fmt.Println("Test: initial election...")
-
-	// is a leader elected?
+	fmt.Println("Test: basic agreement...")
 	cfg.checkOneLeader()
 
-	// // does the leader+Term stay the same there is no failure?
-	// term1 := cfg.checkTerms()
-	// time.Sleep(2 * RaftElectionTimeout)
-	// term2 := cfg.checkTerms()
-	// if term1 != term2 {
-	// 	fmt.Println("warning: Term changed even though there were no failures")
-	// }
+	fmt.Println("Testing agreement on 3 entries...")
+	iters := 3
+	for index := 1; index < iters+1; index++ {
+		res := cfg.sendCommandLeader(index * 100)
+		if !res {
+			t.Fatal("Failed agreement on entry")
+		}
+	}
+
+	fmt.Println(cfg.checkLogData())
 
 	fmt.Println("... Passed")
 }
-
 
 	// asdf := newExtendedPriorityQueue()
 

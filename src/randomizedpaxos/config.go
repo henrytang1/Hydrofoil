@@ -3,6 +3,7 @@ package randomizedpaxos
 import (
 	"genericsmr"
 	"io"
+	"reflect"
 	"runtime"
 	"state"
 	"sync"
@@ -22,31 +23,35 @@ var CLIENTID uint32 = 0
 // 	net.conn[j][i].Connect()
 // }
 
-func (cfg *config) Connect(i int) {
+func (cfg *config) connect(i int) {
 	for j := 0; j < cfg.n; j++ {
-		cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
-		cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
-		cfg.replicas[i].TestingState.IsConnected.Connected[j] = true
-		cfg.replicas[j].TestingState.IsConnected.Connected[i] = true
-		cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
-		cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
+		if i != j {
+			cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
+			cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
+			cfg.replicas[i].TestingState.IsConnected.Connected[j] = true
+			cfg.replicas[j].TestingState.IsConnected.Connected[i] = true
+			cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
+			cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
+		}
 	}
 	cfg.connectedToNet[i] = true
 }
 
-func (cfg *config) Disconnect(i int) {
+func (cfg *config) disconnect(i int) {
 	for j := 0; j < cfg.n; j++ {
-		cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
-		cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
-		cfg.replicas[i].TestingState.IsConnected.Connected[j] = false
-		cfg.replicas[j].TestingState.IsConnected.Connected[i] = false
-		cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
-		cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
+		if i != j {
+			cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
+			cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
+			cfg.replicas[i].TestingState.IsConnected.Connected[j] = false
+			cfg.replicas[j].TestingState.IsConnected.Connected[i] = false
+			cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
+			cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
+		}
 	}
 	cfg.connectedToNet[i] = false
 }
 
-func MakeNetwork(n int) *network {
+func makeNetwork(n int) *network {
 	var net *network = new(network)
 	net.conn = make([][]*genericsmr.SimConn, n)
 	for i := 0; i < n; i++ {
@@ -81,7 +86,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 	runtime.GOMAXPROCS(4)
 	cfg := &config{
 		t: t,
-		net: MakeNetwork(n),
+		net: makeNetwork(n),
 		n: n,
 		replicas: make([]*Replica, n),
 		connectedToNet: make([]bool, n),
@@ -100,7 +105,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 		cfg.replicas[i] = NewReplicaMoreParam(i, make([]string, n), false, false, false, false, false)
 	}
 
-	cfg.Start()
+	cfg.start()
 
 	return cfg
 }
@@ -110,7 +115,7 @@ func make_config_full(t *testing.T, n int, unreliable bool,
 	runtime.GOMAXPROCS(4)
 	cfg := &config{
 		t: t,
-		net: MakeNetwork(n),
+		net: makeNetwork(n),
 		n: n,
 		replicas: make([]*Replica, n),
 		connectedToNet: make([]bool, n),
@@ -130,12 +135,12 @@ func make_config_full(t *testing.T, n int, unreliable bool,
 							electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
 	}
 
-	cfg.Start()
+	cfg.start()
 
 	return cfg
 }
 
-func (cfg *config) Start() {
+func (cfg *config) start() {
 	// connect replicas
 	for i := 0; i < cfg.n; i++ {
 		for j := 0; j < cfg.n; j++ {
@@ -210,4 +215,65 @@ func (cfg *config) checkOneLeader() int {
 	}
 	cfg.t.Fatal("expected one leader, got none")
 	return -1
+}
+
+func (cfg *config) checkLogData() []state.Command {
+	var logData []state.Command
+	logData = nil
+	for i := 0; i < cfg.n; i++ {
+		if logData == nil {
+			logData = cfg.repExecutions[i]
+		} else {
+			if !reflect.DeepEqual(logData, cfg.repExecutions[i]) {
+				cfg.t.Fatal("Log data is not the same for all replicas")
+			}
+		}
+	}
+	return logData
+}
+
+func (cfg *config) sendCommand(rep int, cmdId int) {
+	cmd := state.Command{ClientId: CLIENTID, OpId: int32(cmdId), Op: state.PUT, K: 0, V: 0}
+	cfg.requestChan[rep] <- cmd
+}
+
+func (cfg *config) sendCommandLeader(cmdId int) bool {
+	t0 := time.Now()
+	starts := 0
+	for time.Since(t0).Seconds() < 5 {
+		// try all the servers, maybe one is the leader.
+		index := -1
+		for si := 0; si < cfg.n; si++ {
+			starts = (starts + 1) % cfg.n
+			if cfg.connectedToNet[starts] {
+				isLeader, _, _, _ := cfg.replicas[starts].getState()
+				if isLeader {
+					cfg.sendCommand(starts, cmdId)
+					index = starts
+					break
+				}
+			}
+		}
+
+		if index != -1 {
+			// somebody claimed to be the leader and to have
+			// submitted our command; wait a while for agreement.
+			t1 := time.Now()
+			for time.Since(t1).Seconds() < 2 {
+				for i := 0; i < cfg.n; i++ {
+					logData := cfg.repExecutions[i]
+					for j := 0; j < len(logData); j++ {
+						if logData[j].ClientId == CLIENTID && logData[j].OpId == int32(cmdId) {
+							return true
+						}
+					}
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			return false
+		} else {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	return false
 }

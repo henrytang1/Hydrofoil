@@ -105,6 +105,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	r.handleIncomingTerm(rpc)
+	fmt.Println("Replica", r.Id, "sees", rpc.GetTerm(), rpc.GetSuccess(), rpc.GetCommitIndex(), rpc.NewRequestedIndex)
 	if r.term > int(rpc.Term) || r.leaderState.lastRepEntriesTimestamp != rpc.LeaderTimestamp {
 		return
 	}
@@ -133,9 +134,13 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 				}
 			}
 
+			r.leaderState.repNextIndex[r.Id] = len(r.log)
+			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+
 			if rpc.Success == True {
 				r.leaderState.repMatchIndex[rpc.SenderId] = int(rpc.NewRequestedIndex) - 1
 				r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
+				fmt.Println("BRUH", len(r.log))
 			} else {
 				r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
 			}
@@ -150,9 +155,9 @@ func (r *Replica) broadcastReplicateEntries() {
 	r.leaderState.lastRepEntriesTimestamp = time.Now().UnixNano()
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
-			fmt.Println(r.Id, "HUHUHUHUHUH1", r.leaderState.repNextIndex)
+			// fmt.Println(r.Id, "HUHUHUHUHUH1", r.leaderState.repNextIndex)
 			prevLogIndex := int32(r.leaderState.repNextIndex[i]) - 1
-			fmt.Println("HUHUHUHUHUH2")
+			// fmt.Println("HUHUHUHUHUH2")
 
 			args := &ReplicateEntries{
 				SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),

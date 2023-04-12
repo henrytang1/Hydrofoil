@@ -449,6 +449,7 @@ func (r *Replica) run() {
 		if r.leaderState.isLeader {
 			matchIndices := append(make([]int, 0, r.N), r.leaderState.repMatchIndex...)
 			sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
+			fmt.Println("matchIndices", matchIndices)
 			r.commitIndex = matchIndices[r.N/2+1]
 		}
 
@@ -624,6 +625,9 @@ func (r *Replica) handleProposeCommand(cmd state.Command) {
 		newLogEntry.Index = int32(len(r.log))
 		r.inLog.add(newLogEntry)
 		r.log = append(r.log, newLogEntry)
+		r.leaderState.repNextIndex[r.Id] = len(r.log)
+		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+		fmt.Println("I HATE THIS", len(r.log))
 	} else {
 		r.pq.push(newLogEntry)
 	}
@@ -674,6 +678,11 @@ func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
 		r.inLog.add(rpc.GetEntries()[i])
 		r.log = append(r.log, rpc.GetEntries()[i])
 		r.pq.remove(rpc.GetEntries()[i])
+	}
+
+	if r.leaderState.isLeader {
+		r.leaderState.repNextIndex[r.Id] = len(r.log)
+		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 	}
 
 	return potentialEntries

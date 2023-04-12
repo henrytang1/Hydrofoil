@@ -112,6 +112,8 @@ func (r *Replica) updateLogIfPossible(rpc ReplyMsg) bool {
 					r.inLog.add(entry)
 				}
 			}
+			r.leaderState.repNextIndex[r.Id] = len(r.log)
+			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 		}
 	}
 	return true
@@ -137,6 +139,8 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 						r.log = append(r.log, entry)
 						r.inLog.add(entry)
 					}
+					r.leaderState.repNextIndex[r.Id] = len(r.log)
+					r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 				} else {
 					r.pq.push(r.benOrState.benOrBroadcastEntry)
 				}
@@ -291,6 +295,8 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							r.log = append(r.log, entry)
 							r.inLog.add(entry)
 						}
+						r.leaderState.repNextIndex[r.Id] = len(r.log)
+						r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 					} else {
 						r.pq.push(r.benOrState.benOrBroadcastEntry)
 					}
@@ -453,7 +459,8 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 								}
 						
 								for i := 0; i < r.N; i++ {
-									if i != int(r.Id) || i != int(rpc.GetSenderId()) {
+									// if i != int(r.Id) || i != int(rpc.GetSenderId()) {
+									if i != int(r.Id) {
 										r.leaderState.repNextIndex[i] = min(r.leaderState.repNextIndex[i], oldCommitIndex + 1)
 										r.leaderState.repMatchIndex[i] = min(r.leaderState.repMatchIndex[i], oldCommitIndex)
 									}
@@ -461,9 +468,9 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 									r.leaderState.repNextIndex[r.Id] = len(r.log)
 									r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 						
-									firstEntryIndex := int(rpc.GetStartIndex())
-									r.leaderState.repNextIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries())
-									r.leaderState.repMatchIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries()) - 1
+									// firstEntryIndex := int(rpc.GetStartIndex())
+									// r.leaderState.repNextIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries())
+									// r.leaderState.repMatchIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries()) - 1
 								}
 							}
 							

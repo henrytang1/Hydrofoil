@@ -182,6 +182,7 @@ func (r *Replica) handleIncomingTerm(rpc RPC) {
 		if r.candidateState.isCandidate {
 			r.candidateState = emptyCandidateState
 		}
+		r.votedFor = -1
 	}
 }
 
