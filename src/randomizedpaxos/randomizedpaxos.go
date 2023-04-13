@@ -27,7 +27,7 @@ type BenOrBroadcastReply = randomizedpaxosproto.BenOrBroadcastReply
 type BenOrConsensus = randomizedpaxosproto.BenOrConsensus
 type BenOrConsensusReply = randomizedpaxosproto.BenOrConsensusReply
 type GetCommittedData = randomizedpaxosproto.GetCommittedData
-type SendCommittedData = randomizedpaxosproto.SendCommittedData
+type GetCommittedDataReply = randomizedpaxosproto.GetCommittedDataReply
 // type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
 // type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
 
@@ -154,7 +154,7 @@ type Replica struct {
 	benOrConsensusChan    		chan fastrpc.Serializable
 	benOrConsensusReplyChan   	chan fastrpc.Serializable
 	getCommittedDataChan		chan fastrpc.Serializable
-	sendCommittedDataChan		chan fastrpc.Serializable
+	getCommittedDataReplyChan	chan fastrpc.Serializable
 	replicateEntriesRPC          	uint8
 	replicateEntriesReplyRPC     	uint8
 	requestVoteRPC           	uint8
@@ -163,8 +163,8 @@ type Replica struct {
 	benOrBroadcastReplyRPC      	uint8
 	benOrConsensusRPC      		uint8
 	benOrConsensusReplyRPC     	uint8
-	// getCommittedDataRPC		uint8
-	// sendCommittedDataRPC		uint8
+	getCommittedDataRPC		uint8
+	getCommittedDataReplyRPC	uint8
 
 	term				int
 	votedFor			int
@@ -314,7 +314,7 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 		benOrConsensusChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		benOrConsensusReplyChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		getCommittedDataChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
-		sendCommittedDataChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
+		getCommittedDataReplyChan: make(chan fastrpc.Serializable, genericsmr.CHAN_BUFFER_SIZE),
 		replicateEntriesRPC: 0,
 		replicateEntriesReplyRPC: 0, 
 		requestVoteRPC: 0,
@@ -323,8 +323,8 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 		benOrBroadcastReplyRPC: 0,
 		benOrConsensusRPC: 0,
 		benOrConsensusReplyRPC: 0,
-		// getCommittedDataRPC: 0,
-		// sendCommittedDataRPC: 0,
+		getCommittedDataRPC: 0,
+		getCommittedDataReplyRPC: 0,
 
 		term: 0,
 		votedFor: -1,
@@ -372,8 +372,8 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 	r.benOrBroadcastReplyRPC = r.RegisterRPC(new(BenOrBroadcastReply), r.benOrBroadcastReplyChan)
 	r.benOrConsensusRPC = r.RegisterRPC(new(BenOrConsensus), r.benOrConsensusChan)
 	r.benOrConsensusReplyRPC = r.RegisterRPC(new(BenOrConsensusReply), r.benOrConsensusReplyChan)
-	// r.getCommittedDataRPC = r.RegisterRPC(new(GetCommittedData), r.getCommittedDataChan)
-	// r.sendCommittedDataRPC = r.RegisterRPC(new(SendCommittedData), r.sendCommittedDataChan)
+	r.getCommittedDataRPC = r.RegisterRPC(new(GetCommittedData), r.getCommittedDataChan)
+	r.getCommittedDataReplyRPC = r.RegisterRPC(new(GetCommittedDataReply), r.getCommittedDataReplyChan)
 
 	if r.TestingState.IsProduction {
 		go r.run()
@@ -506,7 +506,7 @@ func (r *Replica) run() {
 			case requestVoteS := <-r.requestVoteChan:
 				requestVote := requestVoteS.(*RequestVote)
 				//got a RequestVote message
-				dlog.Printf("Replica %d receceived RequestVote from replica %d, for term %d\n", r.Id, requestVote.SenderId, requestVote.Term)
+				dlog.Printf("Replica %d received RequestVote from replica %d, for term %d\n", r.Id, requestVote.SenderId, requestVote.Term)
 				r.handleRequestVote(requestVote)
 				break
 
@@ -520,7 +520,8 @@ func (r *Replica) run() {
 			case benOrBroadcastS := <-r.benOrBroadcastChan:
 				benOrBroadcast := benOrBroadcastS.(*BenOrBroadcast)
 				//got a BenOrBroadcast message
-				dlog.Printf("Replica %d receceived BenOrBroadcast from replica %d, for term %d\n", r.Id, benOrBroadcast.SenderId, benOrBroadcast.Term)
+				dlog.Printf("Replica %d received BenOrBroadcast from replica %d, for term %d\n", r.Id, benOrBroadcast.SenderId, benOrBroadcast.Term)
+				// debug.PrintStack()
 				r.handleBenOrBroadcast(benOrBroadcast)
 				break
 
@@ -534,30 +535,30 @@ func (r *Replica) run() {
 			case benOrConsensusS := <-r.benOrConsensusChan:
 				benOrConsensus := benOrConsensusS.(*BenOrConsensus)
 				//got a BenOrConsensus message
-				dlog.Printf("Replica %d received BenOrConsensus from replica %d, for term %d\n", r.Id, benOrConsensus.SenderId, benOrConsensus.Term)
+				dlog.Printf("Replica %d received BenOrConsensus from replica %d, for term %d with vote %d\n", r.Id, benOrConsensus.SenderId, benOrConsensus.Term, benOrConsensus.Vote)
 				r.handleBenOrConsensus(benOrConsensus)
 				break
 
 			case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
 				benOrConsensusReply := benOrConsensusReplyS.(*BenOrConsensusReply)
 				//got a BenOrConsensusReply message
-				dlog.Printf("Replica %d received BenOrConsensusReply from replica %d\n, for term %d", r.Id, benOrConsensusReply.SenderId, benOrConsensusReply.Term)
+				dlog.Printf("Replica %d received BenOrConsensusReply from replica %d, for term %d\n", r.Id, benOrConsensusReply.SenderId, benOrConsensusReply.Term)
 				r.handleBenOrConsensus(benOrConsensusReply)
 				break
 
-			// case getCommittedDataS := <-r.getCommittedDataChan:
-			// 	getCommittedData := getCommittedDataS.(*GetCommittedData)
-			// 	//got a GetCommittedData message
-			// 	dlog.Printf("Received GetCommittedData from replica %d\n", getCommittedData.SenderId)
-			// 	r.handleGetCommittedData(getCommittedData)
-			// 	break
+			case getCommittedDataS := <-r.getCommittedDataChan:
+				getCommittedData := getCommittedDataS.(*GetCommittedData)
+				//got a GetCommittedData message
+				dlog.Printf("Replica %d received GetCommittedData from replica %d\n", r.Id, getCommittedData.SenderId)
+				r.handleGetCommittedData(getCommittedData)
+				break
 			
-			// case sendCommittedDataS := <-r.sendCommittedDataChan:
-			// 	sendCommittedData := sendCommittedDataS.(*SendCommittedData)
-			// 	//got a GetCommittedData message
-			// 	dlog.Printf("Received SendCommittedData from replica %d\n", sendCommittedData.SenderId)
-			// 	r.handleSendCommittedData(sendCommittedData)
-			// 	break
+			case getCommittedDataReplyS := <-r.getCommittedDataReplyChan:
+				getCommittedDataReply := getCommittedDataReplyS.(*GetCommittedDataReply)
+				//got a GetCommittedData message
+				dlog.Printf("Replica %d received GetCommittedDataReply from replica %d\n", r.Id, getCommittedDataReply.SenderId)
+				r.handleGetCommittedDataReply(getCommittedDataReply)
+				break
 
 			// case infoBroadcastS := <-r.infoBroadcastChan:
 			// 	infoBroadcast := infoBroadcastS.(*InfoBroadcast)
@@ -718,6 +719,8 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 		// 	r.pq.push(r.benOrState.benOrBroadcastEntry)
 		// }
 		r.benOrState = emptyBenOrState
+		timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+		setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
 	}
 
 	for _, v := range(potentialEntries) {
@@ -823,57 +826,65 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 // 	return
 // }
 
-// func (r *Replica) handleGetCommittedData (rpc *GetCommittedData) {
-// 	r.handleIncomingTerm(rpc)
+func (r *Replica) sendGetCommittedData() {
+	fmt.Println("Replica", r.Id, "sending get committed data", r.commitIndex, len(r.log))
+	args := &GetCommittedData{
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log))			}
+	for i := 0; i < r.N; i++ {
+		if int32(i) != r.Id {
+			r.SendMsg(int32(i), r.getCommittedDataRPC, args)
+		}
+	}
+}
 
-// 	// only respond if we have a higher commit index
-// 	if r.commitIndex <= int(rpc.CommitIndex) {
-// 		return
-// 	}
+func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
+	r.handleIncomingTerm(rpc)
 
-// 	entries := make([]Entry, 0)
-// 	if rpc.CommitIndex + 1 < int32(len(r.log)) {
-// 		entries = r.log[rpc.CommitIndex + 1:]
-// 	}
+	// only respond if we have a higher commit index
+	if r.isLogMoreUpToDate(rpc) != HigherOrder {
+		return
+	}
 
-// 	args := &SendCommittedData{
-// 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
-// 		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
-// 	}
-// 	r.SendMsg(rpc.SenderId, r.sendCommittedDataRPC, args)
-// }
+	entries := make([]Entry, 0)
+	if rpc.CommitIndex + 1 < int32(len(r.log)) {
+		entries = r.log[rpc.CommitIndex + 1:]
+	}
 
-// func (r *Replica) handleSendCommittedData (rpc *SendCommittedData) {
-// 	r.handleIncomingTerm(rpc)
-// 	if r.term > int(rpc.Term) {
-// 		return
-// 	}
+	args := &GetCommittedDataReply{
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
+	}
+	r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
+}
 
-// 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
-// 		r.updateLogFromRPC(rpc)
-// 	} else {
-// 		for _, v := range(rpc.Entries) {
-// 			if !r.seenBefore(v) { r.pq.push(v) }
-// 		}
+func (r *Replica) handleGetCommittedDataReply(rpc *GetCommittedDataReply) {
+	r.handleIncomingTerm(rpc)
+
+	if r.isLogMoreUpToDate(rpc) == LowerOrder {
+		r.updateLogFromRPC(rpc)
+	} else {
+		for _, v := range(rpc.Entries) {
+			if !r.seenBefore(v) { r.pq.push(v) }
+		}
 	
-// 		for _, v := range(rpc.PQEntries) {
-// 			if !r.seenBefore(v) { r.pq.push(v) }
-// 		}
+		for _, v := range(rpc.PQEntries) {
+			if !r.seenBefore(v) { r.pq.push(v) }
+		}
 
-// 		if r.leaderState.isLeader {
-// 			for !r.pq.isEmpty() {
-// 				entry := r.pq.pop()
-// 				entry.Term = int32(r.term)
-// 				entry.Index = int32(len(r.log))
+		if r.leaderState.isLeader {
+			for !r.pq.isEmpty() {
+				entry := r.pq.pop()
+				entry.Term = int32(r.term)
+				entry.Index = int32(len(r.log))
 
-// 				if !r.inLog.contains(entry) {
-// 					r.log = append(r.log, entry)
-// 					r.inLog.add(entry)
-// 				}
-// 			}
-// 		}
-// 	}
-// }
+				if !r.inLog.contains(entry) {
+					r.log = append(r.log, entry)
+					r.inLog.add(entry)
+				}
+			}
+		}
+	}
+}
 
 // // if something actually changed!
 // if updated {

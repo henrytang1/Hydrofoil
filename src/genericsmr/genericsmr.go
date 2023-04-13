@@ -447,12 +447,13 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 				// 	break
 				// }
 				// fmt.Println("WHATTT", string(buf[:n]))
+				// log.Println("Error: Replica", r.Id, "received", msgType, "type from", rid)
 				if err = obj.Unmarshal(reader); err != nil {
 					break
 				}
 				rpair.Chan <- obj
 			} else {
-				log.Println("Error: received unknown message type")
+				log.Println("Error: Replica", r.Id, "received unknown message type from", rid)
 			}
 		}
 	}
@@ -599,6 +600,7 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 	if (!r.TestingState.IsProduction && !r.TestingState.IsConnected.Connected[int(peerId)]) {
 		return
 	}
+	fmt.Println("Sending message to peer", peerId)
 	w := r.PeerWriters[peerId]
 	w.WriteByte(code)
 	msg.Marshal(w)

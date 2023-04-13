@@ -79,6 +79,8 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		// }
 		fmt.Println("Replica", r.Id, "pq values2", r.pq.extractList())
 		r.benOrState = emptyBenOrState
+		timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+		setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
 	}
 
 	if r.benOrState.benOrStage == Broadcasting && r.commitIndex + 1 < len(r.log) && 

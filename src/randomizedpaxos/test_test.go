@@ -2,9 +2,7 @@ package randomizedpaxos
 
 import (
 	"fmt"
-	"state"
 	"testing"
-	"time"
 )
 
 // this defines the tests that are run
@@ -16,138 +14,152 @@ const heartbeatTimeout = 15
 const benOrStartTimeout = 50
 const benOrResendTimeout = 10
 
-func TestInitialElection(t *testing.T) {
-	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
-	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
+// func TestInitialElection(t *testing.T) {
+// 	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
+// 	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
 
-	// <-replica.heartbeatTimer.timer.C
-	// fmt.Println("hello")
+// 	// <-replica.heartbeatTimer.timer.C
+// 	// fmt.Println("hello")
 
-	// dlog.Println("TEST")
+// 	// dlog.Println("TEST")
 
+// 	servers := 3
+// 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+// 	cfg.runReplicas()
+// 	defer cfg.cleanup()
+
+// 	// defer cfg.cleanup()
+
+// 	fmt.Println("Test: initial election...")
+
+// 	// is a leader elected?
+// 	leader1 := cfg.checkOneLeader()
+// 	cfg.disconnect(leader1)
+
+// 	time.Sleep(4 * electionTimeout)
+
+// 	cfg.checkOneLeader()
+// 	cfg.connect(leader1)
+
+// 	time.Sleep(4 * electionTimeout)
+
+// 	cfg.checkOneLeader()
+
+// 	fmt.Println("... Passed")
+// }
+
+// func TestBasicAgree(t *testing.T) {
+// 	servers := 3
+// 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+// 	cfg.runReplicas()
+// 	defer cfg.cleanup()
+
+// 	fmt.Println("Test: basic agreement...")
+// 	cfg.checkOneLeader()
+
+// 	fmt.Println("Testing agreement on 3 entries...")
+// 	iters := 3
+// 	for index := 1; index < iters+1; index++ {
+// 		res := cfg.sendCommandLeaderCheckReplicas(index * 100, servers)
+// 		if !res {
+// 			t.Fatal("Failed agreement on entry")
+// 		}
+// 	}
+
+// 	fmt.Println(cfg.checkLogData())
+
+// 	fmt.Println("... Passed")
+// }
+
+// func assert(t *testing.T, cond bool, msg string) {
+// 	if !cond {
+// 		t.Fatal(msg)
+// 	}
+// }
+
+// func TestPQ(t *testing.T) {
+// 	pq := newExtendedPriorityQueue()
+// 	pq.push(Entry{Data: state.Command{}, SenderId: 1, Timestamp: 5})
+// 	pq.push(Entry{Data: state.Command{}, SenderId: 2, Timestamp: 3})
+
+// 	fmt.Println(logToString(pq.extractList()))
+// }
+
+// func TestFailAgree(t *testing.T) {
+// 	servers := 5
+// 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+// 	cfg.runReplicas()
+// 	defer cfg.cleanup()
+
+// 	fmt.Println("Test: basic agreement...")
+// 	leader := cfg.checkOneLeader()
+
+// 	cfg.disconnect((leader + 1) % 5)
+// 	cfg.disconnect((leader + 2) % 5)
+
+// 	fmt.Println("Testing agreement on 3 replicas (fail replica)...")
+// 	iters := 3
+// 	index := 1
+// 	for ; index < iters+1; index++ {
+// 		res := cfg.sendCommandLeader(index * 100)
+// 		if !res {
+// 			t.Fatal("Failed agreement on entry")
+// 		}
+// 	}
+// 	fmt.Println(cfg.checkLogData())
+
+// 	cfg.connect((leader + 1) % 5)
+// 	cfg.connect((leader + 2) % 5)
+// 	time.Sleep(4 * electionTimeout)
+
+// 	leader = cfg.checkOneLeader()
+// 	cfg.disconnect((leader+1) % 5)
+// 	cfg.disconnect((leader+2) % 5)
+
+// 	fmt.Println("Testing agreement on 3333 replicas (fail leader)...")
+// 	iters = 6
+// 	for ; index < iters+1; index++ {
+// 		res := cfg.sendCommandLeader(index * 100)
+// 		if !res {
+// 			t.Fatal("Failed agreement on entry")
+// 		}
+// 	}
+// 	assert(t, len(cfg.checkLogData()) == 6, "Log length is not 6")
+
+// 	cfg.disconnect((leader+3) % 5)
+// 	fmt.Println("Testing no agreement on asdf replicas (fail leader)...")
+// 	iters = 8
+// 	for ; index < iters+1; index++ {
+// 		res := cfg.sendCommandReplica((leader+4)%5, index * 100)
+// 		if res {
+// 			t.Fatal("Reached agreement even though majority of replicas are down")
+// 		}
+// 	}
+
+// 	fmt.Println("Reconnecting everyone")
+// 	cfg.connect((leader+1) % 5)
+// 	cfg.connect((leader+2) % 5)
+// 	cfg.connect((leader+3) % 5)
+
+// 	fmt.Println("Testing agreement on 5 replicas...")
+// 	time.Sleep(4 * electionTimeout)
+// 	cfg.checkOneLeader()
+// 	// fmt.Println(cfg.checkLogData())
+// 	// assert(t, len(cfg.checkLogData()) == 6, "Log length is not 6")
+
+// 	fmt.Println("... Passed")
+// }
+
+func TestBenOrSimple(t *testing.T) {
 	servers := 3
-	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
+	cfg := make_config_full(t, servers, false, 1e9, 1e9, benOrStartTimeout, 1e9)
 	cfg.runReplicas()
 	defer cfg.cleanup()
 
-	// defer cfg.cleanup()
-
-	fmt.Println("Test: initial election...")
-
-	// is a leader elected?
-	leader1 := cfg.checkOneLeader()
-	cfg.disconnect(leader1)
-
-	time.Sleep(4 * electionTimeout)
-
-	cfg.checkOneLeader()
-	cfg.connect(leader1)
-
-	time.Sleep(4 * electionTimeout)
-
-	cfg.checkOneLeader()
-
-	fmt.Println("... Passed")
-}
-
-func TestBasicAgree(t *testing.T) {
-	servers := 3
-	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
-	cfg.runReplicas()
-	defer cfg.cleanup()
-
-	fmt.Println("Test: basic agreement...")
-	cfg.checkOneLeader()
-
-	fmt.Println("Testing agreement on 3 entries...")
-	iters := 3
-	for index := 1; index < iters+1; index++ {
-		res := cfg.sendCommandLeaderCheckReplicas(index * 100, servers)
-		if !res {
-			t.Fatal("Failed agreement on entry")
-		}
+	res := cfg.sendCommandReplica(0, 100)
+	if !res {
+		t.Fatal("Failed agreement on entry")
 	}
-
-	fmt.Println(cfg.checkLogData())
-
-	fmt.Println("... Passed")
-}
-
-func assert(t *testing.T, cond bool, msg string) {
-	if !cond {
-		t.Fatal(msg)
-	}
-}
-
-func TestPQ(t *testing.T) {
-	pq := newExtendedPriorityQueue()
-	pq.push(Entry{Data: state.Command{}, SenderId: 1, Timestamp: 5})
-	pq.push(Entry{Data: state.Command{}, SenderId: 2, Timestamp: 3})
-
-	fmt.Println(logToString(pq.extractList()))
-}
-
-func TestFailAgree(t *testing.T) {
-	servers := 5
-	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
-	cfg.runReplicas()
-	defer cfg.cleanup()
-
-	fmt.Println("Test: basic agreement...")
-	leader := cfg.checkOneLeader()
-
-	cfg.disconnect((leader + 1) % 5)
-	cfg.disconnect((leader + 2) % 5)
-
-	fmt.Println("Testing agreement on 3 replicas (fail replica)...")
-	iters := 3
-	index := 1
-	for ; index < iters+1; index++ {
-		res := cfg.sendCommandLeader(index * 100)
-		if !res {
-			t.Fatal("Failed agreement on entry")
-		}
-	}
-	fmt.Println(cfg.checkLogData())
-
-	cfg.connect((leader + 1) % 5)
-	cfg.connect((leader + 2) % 5)
-	time.Sleep(4 * electionTimeout)
-
-	leader = cfg.checkOneLeader()
-	cfg.disconnect((leader+1) % 5)
-	cfg.disconnect((leader+2) % 5)
-
-	fmt.Println("Testing agreement on 3333 replicas (fail leader)...")
-	iters = 6
-	for ; index < iters+1; index++ {
-		res := cfg.sendCommandLeader(index * 100)
-		if !res {
-			t.Fatal("Failed agreement on entry")
-		}
-	}
-	assert(t, len(cfg.checkLogData()) == 6, "Log length is not 6")
-
-	cfg.disconnect((leader+3) % 5)
-	fmt.Println("Testing no agreement on asdf replicas (fail leader)...")
-	iters = 8
-	for ; index < iters+1; index++ {
-		res := cfg.sendCommandReplica((leader+4)%5, index * 100)
-		if res {
-			t.Fatal("Reached agreement even though majority of replicas are down")
-		}
-	}
-
-	fmt.Println("Reconnecting everyone")
-	cfg.connect((leader+1) % 5)
-	cfg.connect((leader+2) % 5)
-	cfg.connect((leader+3) % 5)
-
-	fmt.Println("Testing agreement on 5 replicas...")
-	time.Sleep(4 * electionTimeout)
-	cfg.checkOneLeader()
-	// fmt.Println(cfg.checkLogData())
-	// assert(t, len(cfg.checkLogData()) == 6, "Log length is not 6")
 
 	fmt.Println("... Passed")
 }

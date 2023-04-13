@@ -267,7 +267,7 @@ func (t *GetCommittedData) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *GetCommittedData) GetLogTerm() int32 { return t.LogTerm }
 func (t *GetCommittedData) GetLogLength() int32 { return t.LogLength }
 
-type SendCommittedData struct {
+type GetCommittedDataReply struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
@@ -279,14 +279,14 @@ type SendCommittedData struct {
     PQEntries                       []Entry
 }
 
-func (t *SendCommittedData) GetSenderId() int32 { return t.SenderId }
-func (t *SendCommittedData) GetTerm() int32 { return t.Term }
-func (t *SendCommittedData) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *SendCommittedData) GetLogTerm() int32 { return t.LogTerm }
-func (t *SendCommittedData) GetLogLength() int32 { return t.LogLength }
-func (t *SendCommittedData) GetStartIndex() int32 { return t.StartIndex }
-func (t *SendCommittedData) GetEntries() []Entry { return t.Entries }
-func (t *SendCommittedData) GetPQEntries() []Entry { return t.PQEntries }
+func (t *GetCommittedDataReply) GetSenderId() int32 { return t.SenderId }
+func (t *GetCommittedDataReply) GetTerm() int32 { return t.Term }
+func (t *GetCommittedDataReply) GetCommitIndex() int32 { return t.CommitIndex }
+func (t *GetCommittedDataReply) GetLogTerm() int32 { return t.LogTerm }
+func (t *GetCommittedDataReply) GetLogLength() int32 { return t.LogLength }
+func (t *GetCommittedDataReply) GetStartIndex() int32 { return t.StartIndex }
+func (t *GetCommittedDataReply) GetEntries() []Entry { return t.Entries }
+func (t *GetCommittedDataReply) GetPQEntries() []Entry { return t.PQEntries }
 
 // type InfoBroadcast struct {
 //     SenderId	   					int32
