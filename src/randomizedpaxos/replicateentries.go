@@ -48,10 +48,11 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
-			Success: False, NewRequestedIndex: int32(r.commitIndex),
+			Success: False, NewRequestedIndex: int32(r.commitIndex) + 1,
 		}
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
+		return
 	}
 
 	if r.leaderState.isLeader {
@@ -68,12 +69,15 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		if !r.seenBefore(v) { r.pq.push(v) }
 	}
 
+	fmt.Println("Replica", r.Id, "pq values4", r.pq.extractList())
+
 	r.commitIndex = int(rpc.CommitIndex)
 	r.logTerm = max(r.logTerm, int(rpc.LogTerm))
 	if r.commitIndex > oldCommitIndex {
-		if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-			r.pq.push(r.benOrState.benOrBroadcastEntry)
-		}
+		// if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+		// 	r.pq.push(r.benOrState.benOrBroadcastEntry)
+		// }
+		fmt.Println("Replica", r.Id, "pq values2", r.pq.extractList())
 		r.benOrState = emptyBenOrState
 	}
 
@@ -88,6 +92,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	}
 
 	if !r.benOrState.benOrRunning || r.benOrState.benOrStage == Broadcasting {
+		fmt.Println("HUH", r.Id, logToString(r.pq.extractList()))
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			LeaderTimestamp: rpc.LeaderTimestamp, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
@@ -113,7 +118,7 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 		return
 	}
 
-	fmt.Println("Leader", r.Id, ": ", r.commitIndex, r.logTerm, len(r.log), ", Replica", rpc.SenderId, ": ", rpc.CommitIndex, rpc.LogTerm, rpc.LogLength)
+	fmt.Println("Leader", r.Id, ": ", r.commitIndex, r.logTerm, len(r.log), ", Replica", rpc.SenderId, ": ", rpc.CommitIndex, rpc.LogTerm, rpc.LogLength, "PQEntries", "[", logToString(rpc.PQEntries), "]")
 	if r.isLogMoreUpToDate(rpc) == LowerOrder {
 		// todo: leader needs to handle the case where the committed entries match up with its own!
 		r.updateLogFromRPC(rpc)
@@ -125,6 +130,8 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 		for _, v := range(rpc.PQEntries) {
 			if !r.seenBefore(v) { r.pq.push(v) }
 		}
+
+		fmt.Println("Replica", r.Id, "pq values3", r.pq.extractList())
 
 		if r.leaderState.isLeader {
 			for !r.pq.isEmpty() {

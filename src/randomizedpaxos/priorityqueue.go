@@ -26,7 +26,7 @@ func newExtendedPriorityQueue() ExtendedPriorityQueue {
 }
 
 func (extPQ *ExtendedPriorityQueue) push(entry Entry) {
-	if entry.Term == -1 {
+	if entry == emptyEntry {
 		return
 	}
 

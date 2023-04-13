@@ -5,6 +5,7 @@ import (
 	"dlog"
 	"encoding/binary"
 	"fastrpc"
+	"fmt"
 	"genericsmr"
 	"genericsmrproto"
 	"io"
@@ -452,6 +453,10 @@ func (r *Replica) run() {
 			r.commitIndex = max(r.commitIndex, matchIndices[r.N/2])
 		}
 
+		if r.commitIndex > r.lastApplied {
+			fmt.Println("Replica", r.Id, "executing", r.commitIndex, r.lastApplied, logToString(r.log))
+		}
+
 		// Execution of the leader's state machine
 		for i := r.lastApplied + 1; i <= r.commitIndex; i++ {
 			r.executeCommand(i)
@@ -639,6 +644,9 @@ func (r *Replica) handleProposeCommand(cmd state.Command) {
 		dlog.Println("I HATE THIS", len(r.log))
 	} else {
 		r.pq.push(newLogEntry)
+		fmt.Println(newLogEntry)
+		fmt.Println(r.pq.extractList())
+		fmt.Println(r.Id, "ADDED TO PQ", logToString(r.pq.extractList()))
 	}
 }
 
@@ -706,9 +714,9 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 	r.commitIndex = int(rpc.GetCommitIndex())
 	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
 	if r.commitIndex > oldCommitIndex {
-		if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-			r.pq.push(r.benOrState.benOrBroadcastEntry)
-		}
+		// if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+		// 	r.pq.push(r.benOrState.benOrBroadcastEntry)
+		// }
 		r.benOrState = emptyBenOrState
 	}
 
@@ -719,6 +727,8 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 	for _, v := range(rpc.GetPQEntries()) {
 		if !r.seenBefore(v) { r.pq.push(v) }
 	}
+
+	fmt.Println("Replica", r.Id, "pq values5", r.pq.extractList())
 
 	if r.leaderState.isLeader {
 		if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {

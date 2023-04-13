@@ -13,11 +13,11 @@ func (r *Replica) startBenOrPlus() {
 }
 
 func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []Entry, heardServerFromBroadcast []bool) {
-	if iteration != 0 {
-		if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-			r.pq.push(r.benOrState.benOrBroadcastEntry)
-		}
-	}
+	// if iteration != 0 {
+	// 	if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+	// 		r.pq.push(r.benOrState.benOrBroadcastEntry)
+	// 	}
+	// }
 
 	var broadcastEntry Entry
 	benOrIndex := r.commitIndex + 1
@@ -129,22 +129,22 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 	// at this point, r.commitIndex >= int(rpc.GetCommitIndex())
 	if r.commitIndex == int(rpc.GetCommitIndex()) && (r.benOrState.benOrRunning || rpc.GetIteration() > 0) {
 		if r.benOrState.benOrIteration < int(rpc.GetIteration()) {
-			if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-				if r.leaderState.isLeader {
-					entry := r.benOrState.benOrBroadcastEntry
-					entry.Term = int32(r.term)
-					entry.Index = int32(len(r.log))
+			// if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+			// 	if r.leaderState.isLeader {
+			// 		entry := r.benOrState.benOrBroadcastEntry
+			// 		entry.Term = int32(r.term)
+			// 		entry.Index = int32(len(r.log))
 	
-					if !r.inLog.contains(entry) {
-						r.log = append(r.log, entry)
-						r.inLog.add(entry)
-					}
-					r.leaderState.repNextIndex[r.Id] = len(r.log)
-					r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-				} else {
-					r.pq.push(r.benOrState.benOrBroadcastEntry)
-				}
-			}
+			// 		if !r.inLog.contains(entry) {
+			// 			r.log = append(r.log, entry)
+			// 			r.inLog.add(entry)
+			// 		}
+			// 		r.leaderState.repNextIndex[r.Id] = len(r.log)
+			// 		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+			// 	} else {
+			// 		r.pq.push(r.benOrState.benOrBroadcastEntry)
+			// 	}
+			// }
 			heardServerFromBroadcast := make([]bool, r.N)
 			heardServerFromBroadcast[rpc.GetSenderId()] = true
 			r.startNewBenOrPlusIteration(int(rpc.GetIteration()), []Entry{rpc.GetBroadcastEntry()}, heardServerFromBroadcast)
@@ -285,22 +285,22 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 			var majEntry Entry
 			var biasedCoin bool	
 			if caseIteration {
-				if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-					if r.leaderState.isLeader {
-						entry := r.benOrState.benOrBroadcastEntry
-						entry.Term = int32(r.term)
-						entry.Index = int32(len(r.log))
+				// if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
+				// 	if r.leaderState.isLeader {
+				// 		entry := r.benOrState.benOrBroadcastEntry
+				// 		entry.Term = int32(r.term)
+				// 		entry.Index = int32(len(r.log))
 		
-						if !r.inLog.contains(entry) {
-							r.log = append(r.log, entry)
-							r.inLog.add(entry)
-						}
-						r.leaderState.repNextIndex[r.Id] = len(r.log)
-						r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-					} else {
-						r.pq.push(r.benOrState.benOrBroadcastEntry)
-					}
-				}
+				// 		if !r.inLog.contains(entry) {
+				// 			r.log = append(r.log, entry)
+				// 			r.inLog.add(entry)
+				// 		}
+				// 		r.leaderState.repNextIndex[r.Id] = len(r.log)
+				// 		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+				// 	} else {
+				// 		r.pq.push(r.benOrState.benOrBroadcastEntry)
+				// 	}
+				// }
 				benOrBroadcastEntry = emptyEntry
 				haveMajEntry = convertIntegerToBool(rpc.GetHaveMajEntry())
 				majEntry = rpc.GetMajEntry()

@@ -251,9 +251,31 @@ func (cfg *config) cleanup() {
 	}
 }
 
-func (cfg *config) sendCommandLeader(cmdId int, expectedServers int) bool {
+func (cfg *config) sendCommandReplica(rep int, cmdId int) bool {
+	cfg.sendCommand(rep, cmdId)
+	t1 := time.Now()
+	for time.Since(t1).Seconds() < 2 {
+		numFound := 0
+		for i := 0; i < cfg.n; i++ {
+			logData := cfg.repExecutions[i]
+			for j := 0; j < len(logData); j++ {
+				if logData[j].ClientId == CLIENTID && logData[j].OpId == int32(cmdId) {
+					numFound++
+				}
+			}
+		}
+		if numFound >= cfg.n/2+1 {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
+}
+
+func (cfg *config) sendCommandLeaderCheckReplicas(cmdId int, expectedReplicas int) bool {
 	t0 := time.Now()
 	starts := 0
+	inc := 0
 	for time.Since(t0).Seconds() < 5 {
 		// try all the servers, maybe one is the leader.
 		index := -1
@@ -262,7 +284,7 @@ func (cfg *config) sendCommandLeader(cmdId int, expectedServers int) bool {
 			if cfg.connectedToNet[starts] {
 				isLeader, _, _, _ := cfg.replicas[starts].getState()
 				if isLeader {
-					cfg.sendCommand(starts, cmdId)
+					cfg.sendCommand(starts, cmdId + inc)
 					fmt.Println("Sent command", cmdId, "to", starts)
 					index = starts
 					break
@@ -279,16 +301,17 @@ func (cfg *config) sendCommandLeader(cmdId int, expectedServers int) bool {
 				for i := 0; i < cfg.n; i++ {
 					logData := cfg.repExecutions[i]
 					for j := 0; j < len(logData); j++ {
-						if logData[j].ClientId == CLIENTID && logData[j].OpId == int32(cmdId) {
+						if logData[j].ClientId == CLIENTID && logData[j].OpId == int32(cmdId + inc) {
 							numFound++
 						}
 					}
 				}
-				if numFound >= expectedServers {
+				if numFound >= expectedReplicas {
 					return true
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
+			inc++
 		} else {
 			time.Sleep(50 * time.Millisecond)
 		}
@@ -297,4 +320,8 @@ func (cfg *config) sendCommandLeader(cmdId int, expectedServers int) bool {
 		fmt.Println("Replica ", j, " log: ", cfg.repExecutions[j])
 	}
 	return false
+}
+
+func (cfg *config) sendCommandLeader(cmdId int) bool {
+	return cfg.sendCommandLeaderCheckReplicas(cmdId, cfg.n/2+1)
 }
