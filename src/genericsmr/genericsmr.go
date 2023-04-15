@@ -15,6 +15,8 @@ import (
 	"state"
 	"sync"
 	"time"
+
+	mrand "math/rand"
 )
 
 const CHAN_BUFFER_SIZE = 200000
@@ -57,8 +59,19 @@ type RepCommand struct {
 type Testing struct { // for testing purposes only
 	IsProduction bool
 	IsConnected  IsConnectedStatus
-	RequestChan   chan state.Command
-	ResponseChan  chan RepCommand
+	IsReliable   map[int]bool
+	RequestChan  chan state.Command
+	ResponseChan chan RepCommand
+}
+
+type LockedReader struct {
+	*bufio.Reader
+	mu *sync.Mutex
+}
+
+type LockedWriter struct {
+	*bufio.Writer
+	mu *sync.Mutex
 }
 
 type Replica struct {
@@ -66,8 +79,8 @@ type Replica struct {
 	Id           int32      // the ID of the current replica
 	PeerAddrList []string   // array with the IP:port address of every replica
 	Peers        []net.Conn // cache of connections to all other replicas
-	PeerReaders  []*bufio.Reader
-	PeerWriters  []*bufio.Writer
+	PeerReaders  []LockedReader
+	PeerWriters  []LockedWriter
 	Alive        []bool // connection status
 	Listener     net.Listener
 
@@ -108,8 +121,8 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		int32(id),
 		peerAddrList,
 		make([]net.Conn, len(peerAddrList)),
-		make([]*bufio.Reader, len(peerAddrList)),
-		make([]*bufio.Writer, len(peerAddrList)),
+		make([]LockedReader, len(peerAddrList)),
+		make([]LockedWriter, len(peerAddrList)),
 		make([]bool, len(peerAddrList)),
 		nil,
 		state.InitState(),
@@ -129,7 +142,7 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		make(chan bool, 1200),
 		make(chan *Client, CHAN_BUFFER_SIZE),
 		make(chan *GetView, CHAN_BUFFER_SIZE),
-		Testing{true, IsConnectedStatus{Connected: make(map[int]bool)}, nil, nil},
+		Testing{true, IsConnectedStatus{Connected: make(map[int]bool)}, make(map[int]bool), nil, nil},
 	}
 
 	var err error
@@ -161,7 +174,7 @@ func (r *Replica) BeTheLeader2(args *genericsmrproto.BeTheLeaderArgs, reply *gen
 }
 
 type SimConn struct {
-    *io.PipeReader
+	*io.PipeReader
 	*io.PipeWriter
 }
 
@@ -172,16 +185,17 @@ func NewSimConn(pr *io.PipeReader, pw *io.PipeWriter) *SimConn{
 	}
 }
 
-func (r *Replica) ConnectToPeersSim(serverId int, simConn *SimConn) {
+func (r *Replica) ConnectToPeersSim(serverId int, simConn *SimConn, reliable bool) {
 	// a, b := io.Pipe()
 
 	r.Alive[serverId] = true
-	r.PeerReaders[serverId] = bufio.NewReader(simConn)
-	r.PeerWriters[serverId] = bufio.NewWriter(simConn)
+	r.PeerReaders[serverId] = LockedReader{bufio.NewReader(simConn), &sync.Mutex{}}
+	r.PeerWriters[serverId] = LockedWriter{bufio.NewWriter(simConn), &sync.Mutex{}}
 
 	if !r.TestingState.IsProduction {
 		r.TestingState.IsConnected.Mu.Lock()
 		r.TestingState.IsConnected.Connected[serverId] = true
+		r.TestingState.IsReliable[serverId] = reliable
 		dlog.Println("server", r.Id, "connected to server", serverId)
 		r.TestingState.IsConnected.Mu.Unlock()
 	}
@@ -221,8 +235,8 @@ func (r *Replica) ConnectToPeers() {
 			continue
 		}
 		r.Alive[i] = true
-		r.PeerReaders[i] = bufio.NewReader(r.Peers[i])
-		r.PeerWriters[i] = bufio.NewWriter(r.Peers[i])
+		r.PeerReaders[i] = LockedReader{bufio.NewReader(r.Peers[i]), &sync.Mutex{}}
+		r.PeerWriters[i] = LockedWriter{bufio.NewWriter(r.Peers[i]), &sync.Mutex{}}
 	}
 	<-done
 	log.Printf("Replica id: %d. Done connecting to peers\n", r.Id)
@@ -258,8 +272,8 @@ func (r *Replica) ConnectToPeersNoListeners() {
 			continue
 		}
 		r.Alive[i] = true
-		r.PeerReaders[i] = bufio.NewReader(r.Peers[i])
-		r.PeerWriters[i] = bufio.NewWriter(r.Peers[i])
+		r.PeerReaders[i] = LockedReader{bufio.NewReader(r.Peers[i]), &sync.Mutex{}}
+		r.PeerWriters[i] = LockedWriter{bufio.NewWriter(r.Peers[i]), &sync.Mutex{}}
 	}
 	<-done
 	log.Printf("Replica id: %d. Done connecting to peers\n", r.Id)
@@ -283,8 +297,8 @@ func (r *Replica) waitForPeerConnections(done chan bool) {
 		}
 		id := int32(binary.LittleEndian.Uint32(bs))
 		r.Peers[id] = conn
-		r.PeerReaders[id] = bufio.NewReader(conn)
-		r.PeerWriters[id] = bufio.NewWriter(conn)
+		r.PeerReaders[id] = LockedReader{bufio.NewReader(conn), &sync.Mutex{}}
+		r.PeerWriters[id] = LockedWriter{bufio.NewWriter(conn), &sync.Mutex{}}
 		r.Alive[id] = true
 	}
 
@@ -305,7 +319,11 @@ func (r *Replica) WaitForClientConnections() {
 	}
 }
 
-func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
+type HasSenderId interface {
+	GetSenderId() int32
+}
+
+func (r *Replica) replicaListener(rid int, reader LockedReader) {
 	var msgType uint8
 	var err error = nil
 	var gbeacon genericsmrproto.Beacon
@@ -451,7 +469,21 @@ func (r *Replica) replicaListener(rid int, reader *bufio.Reader) {
 				if err = obj.Unmarshal(reader); err != nil {
 					break
 				}
-				rpair.Chan <- obj
+
+				if !r.TestingState.IsProduction {
+					if t, ok := obj.(HasSenderId); ok {
+						if !r.TestingState.IsConnected.Connected[int(t.GetSenderId())] {
+							// fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
+							continue
+						} else {
+							rpair.Chan <- obj
+						}
+					}
+				} else {
+					rpair.Chan <- obj
+				}
+
+				// rpair.Chan <- obj
 			} else {
 				log.Println("Error: Replica", r.Id, "received unknown message type from", rid)
 			}
@@ -597,10 +629,38 @@ func (r *Replica) RegisterRPC(msgObj fastrpc.Serializable, notify chan fastrpc.S
 }
 
 func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
-	if (!r.TestingState.IsProduction && !r.TestingState.IsConnected.Connected[int(peerId)]) {
+	if !r.TestingState.IsProduction && !r.TestingState.IsConnected.Connected[int(peerId)] {
+		// fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")
 		return
 	}
-	fmt.Println("Sending message to peer", peerId)
+
+	if !r.TestingState.IsProduction && !r.TestingState.IsReliable[int(peerId)] {
+		// short delay
+		go func() {
+			time.Sleep(time.Duration(mrand.Int() % 27) * time.Millisecond)
+
+			if mrand.Int()%1000 < 100 {
+				// drop the request, return as if timeout
+				return
+			}
+
+			if r.TestingState.IsConnected.Connected[int(peerId)] {
+				// fmt.Println("Replica", r.Id, "sending message to peer", peerId)
+				w := r.PeerWriters[peerId]
+				w.mu.Lock()
+				w.WriteByte(code)
+				msg.Marshal(w)
+				w.Flush()
+				w.mu.Unlock()
+			}
+			// else {
+			// 	fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")
+			// }
+		}()
+		return
+	}
+
+	fmt.Println("Replica", r.Id, "sending message to peerrrrr", peerId)
 	w := r.PeerWriters[peerId]
 	w.WriteByte(code)
 	msg.Marshal(w)

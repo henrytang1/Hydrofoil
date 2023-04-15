@@ -103,6 +103,8 @@ func convertIntegerToBool(i uint8) bool {
 	return false
 }
 
+var zeroTime time.Time
+
 // const INJECT_SLOWDOWN = false
 // const CHAN_BUFFER_SIZE = 200000
 // const MAX_BATCH = 5000
@@ -112,7 +114,7 @@ type LeaderState struct {
 	isLeader			bool
 	repNextIndex			[]int // next index to send to each replica
 	repMatchIndex			[]int // index of highest known replicated entry on replica
-	lastRepEntriesTimestamp		int64
+	lastReplicaTimestamp		[]time.Time // time we last heard a replicateentriesreply from each replica
 }
 
 type CandidateState struct {
@@ -175,6 +177,7 @@ type Replica struct {
 	commitIndex			int // index of highest log entry known to be committed
 	logTerm				int // highest entry previously seen in log (not precisely, but will do for now)
 	lastApplied			int // index of last log entry applied to state machine
+	lastHeardFromLeader		time.Time // time we last heard from the leader
 
 	leaderState			LeaderState
 	benOrState			BenOrState
@@ -272,7 +275,7 @@ var emptyLeaderState = LeaderState{
 	isLeader: false,
 	repNextIndex: make([]int, 0), // replica next index
 	repMatchIndex: make([]int, 0),
-	lastRepEntriesTimestamp: 0,
+	lastReplicaTimestamp: make([]time.Time, 0),
 }
 
 var emptyCandidateState = CandidateState{
@@ -335,7 +338,8 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 		commitIndex: 0,
 		logTerm: 0,
 		lastApplied: 0, // 0 entry is already applied (it's an empty entry)
-		
+		lastHeardFromLeader: time.Now(),
+
 		leaderState: emptyLeaderState,
 		benOrState: emptyBenOrState,
 		candidateState: emptyCandidateState,
@@ -454,7 +458,7 @@ func (r *Replica) run() {
 		}
 
 		if r.commitIndex > r.lastApplied {
-			fmt.Println("Replica", r.Id, "executing", r.commitIndex, r.lastApplied, logToString(r.log))
+			fmt.Println("Replica", r.Id, "executing", r.commitIndex, r.lastApplied, len(logToString(r.log)))
 		}
 
 		// Execution of the leader's state machine
@@ -520,7 +524,7 @@ func (r *Replica) run() {
 			case benOrBroadcastS := <-r.benOrBroadcastChan:
 				benOrBroadcast := benOrBroadcastS.(*BenOrBroadcast)
 				//got a BenOrBroadcast message
-				dlog.Printf("Replica %d received BenOrBroadcast from replica %d, for term %d\n", r.Id, benOrBroadcast.SenderId, benOrBroadcast.Term)
+				dlog.Printf("Replica %d received BenOrBroadcast from replica %d, for term %d and index %d\n", r.Id, benOrBroadcast.SenderId, benOrBroadcast.Term, benOrBroadcast.CommitIndex+1)
 				// debug.PrintStack()
 				r.handleBenOrBroadcast(benOrBroadcast)
 				break
@@ -528,7 +532,7 @@ func (r *Replica) run() {
 			case benOrBroadcastReplyS := <-r.benOrBroadcastReplyChan:
 				benOrBroadcastReply := benOrBroadcastReplyS.(*BenOrBroadcastReply)
 				//got a BenOrBroadcastReply message
-				dlog.Printf("Replica %d received BenOrBroadcastReply from replica %d, for term %d\n", r.Id, benOrBroadcastReply.SenderId, benOrBroadcastReply.Term)
+				dlog.Printf("Replica %d received BenOrBroadcastReply from replica %d, for term %d and index %d and validity %d\n", r.Id, benOrBroadcastReply.SenderId, benOrBroadcastReply.Term, benOrBroadcastReply.CommitIndex+1, benOrBroadcastReply.BenOrMsgValid)
 				r.handleBenOrBroadcast(benOrBroadcastReply)
 				break
 
@@ -542,7 +546,7 @@ func (r *Replica) run() {
 			case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
 				benOrConsensusReply := benOrConsensusReplyS.(*BenOrConsensusReply)
 				//got a BenOrConsensusReply message
-				dlog.Printf("Replica %d received BenOrConsensusReply from replica %d, for term %d\n", r.Id, benOrConsensusReply.SenderId, benOrConsensusReply.Term)
+				dlog.Printf("Replica %d received BenOrConsensusReply from replica %d, for term %d with vote %d and validity %d\n", r.Id, benOrConsensusReply.SenderId, benOrConsensusReply.Term, benOrConsensusReply.Vote, benOrConsensusReply.BenOrMsgValid)
 				r.handleBenOrConsensus(benOrConsensusReply)
 				break
 
@@ -590,6 +594,7 @@ func (r *Replica) run() {
 				r.startBenOrPlus()
 
 			case <- r.benOrResendTimer.timer.C:
+				// fmt.Println("Replica", r.Id, "got a benOrResend timeout")
 				r.benOrResendTimer.active = false
 				//got a benOrResend timeout
 				r.resendBenOrTimer()
@@ -600,6 +605,8 @@ func (r *Replica) run() {
 		}
 	}
 
+	fmt.Println("Replica", r.Id, "exiting main loop")
+
 	clearTimer(r.heartbeatTimer)
 	clearTimer(r.electionTimer)
 	clearTimer(r.benOrStartTimer)
@@ -609,6 +616,10 @@ func (r *Replica) run() {
 func (r *Replica) sendHeartbeat() {
 	timeout := rand.Intn(r.heartbeatTimeout/2) + r.heartbeatTimeout/2
 	setTimer(r.heartbeatTimer, time.Duration(timeout)*time.Millisecond)
+
+	if !r.leaderState.isLeader {
+		log.Fatal("Replica", r.Id, "is not leader, but sending heartbeat")
+	}
 	
 	dlog.Printf("Replica %d sending heartbeat\n", r.Id)
 	r.broadcastReplicateEntries()
@@ -645,9 +656,9 @@ func (r *Replica) handleProposeCommand(cmd state.Command) {
 		dlog.Println("I HATE THIS", len(r.log))
 	} else {
 		r.pq.push(newLogEntry)
-		fmt.Println(newLogEntry)
-		fmt.Println(r.pq.extractList())
-		fmt.Println(r.Id, "ADDED TO PQ", logToString(r.pq.extractList()))
+		// fmt.Println(newLogEntry)
+		// fmt.Println(r.pq.extractList())
+		// fmt.Println(r.Id, "ADDED TO PQ", logToString(r.pq.extractList()))
 	}
 }
 
@@ -715,12 +726,15 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 	r.commitIndex = int(rpc.GetCommitIndex())
 	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
 	if r.commitIndex > oldCommitIndex {
+		fmt.Println("Replica", r.Id, "committing to", r.commitIndex, "from", oldCommitIndex)
 		// if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
 		// 	r.pq.push(r.benOrState.benOrBroadcastEntry)
 		// }
 		r.benOrState = emptyBenOrState
 		timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
 		setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
+
+		clearTimer(r.benOrResendTimer)
 	}
 
 	for _, v := range(potentialEntries) {
@@ -735,7 +749,7 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 
 	if r.leaderState.isLeader {
 		if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {
-			log.Fatal("Something is wrong!!!")
+			log.Fatal("Leader", r.Id, "got an RPC with a commit index that is less than the last entry in the RPC from", rpc.GetSenderId())
 		}
 
 		for !r.pq.isEmpty() {

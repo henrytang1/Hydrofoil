@@ -32,8 +32,6 @@ type ReplicateEntries struct {
     LogTerm                         int32
     LogLength                       int32
 
-    LeaderTimestamp                 int64
-
     PrevLogIndex					int32
     PrevLogSenderId                 int32
     PrevLogTimestamp                int64
@@ -51,7 +49,6 @@ func (t *ReplicateEntries) GetTerm() int32 { return t.Term }
 func (t *ReplicateEntries) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *ReplicateEntries) GetLogTerm() int32 { return t.LogTerm }
 func (t *ReplicateEntries) GetLogLength() int32 { return t.LogLength }
-func (t *ReplicateEntries) GetLeaderTimestamp() int64 { return t.LeaderTimestamp }
 func (t *ReplicateEntries) GetPrevLogIndex() int32 { return t.PrevLogIndex }
 func (t *ReplicateEntries) GetPrevLogSenderId() int32 { return t.PrevLogSenderId }
 func (t *ReplicateEntries) GetPrevLogTimestamp() int64 { return t.PrevLogTimestamp }
@@ -65,7 +62,7 @@ type ReplicateEntriesReply struct {
     LogTerm                         int32
     LogLength                       int32
 
-    LeaderTimestamp                 int64
+    ReplyTimestamp                  int64
 
     StartIndex                      int32 // return entries starting from this index
     Entries				            []Entry
@@ -80,7 +77,7 @@ func (t *ReplicateEntriesReply) GetTerm() int32 { return t.Term }
 func (t *ReplicateEntriesReply) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *ReplicateEntriesReply) GetLogTerm() int32 { return t.LogTerm }
 func (t *ReplicateEntriesReply) GetLogLength() int32 { return t.LogLength }
-func (t *ReplicateEntriesReply) GetLeaderTimestamp() int64 { return t.LeaderTimestamp }
+func (t *ReplicateEntriesReply) GetReplyTimestamp() int64 { return t.ReplyTimestamp }
 func (t *ReplicateEntriesReply) GetStartIndex() int32 { return t.StartIndex }
 func (t *ReplicateEntriesReply) GetEntries() []Entry { return t.Entries }
 func (t *ReplicateEntriesReply) GetPQEntries() []Entry { return t.PQEntries }

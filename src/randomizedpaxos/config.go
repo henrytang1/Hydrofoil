@@ -26,7 +26,7 @@ var CLIENTID uint32 = 0
 
 func (cfg *config) connect(i int) {
 	for j := 0; j < cfg.n; j++ {
-		if i != j {
+		if i != j && cfg.connectedToNet[j] {
 			cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
 			cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
 			cfg.replicas[i].TestingState.IsConnected.Connected[j] = true
@@ -85,7 +85,7 @@ type config struct {
 }
 
 // this is for testing purposes only
-func make_config(t *testing.T, n int, unreliable bool) *config {
+func make_config(t *testing.T, n int, reliable bool) *config {
 	runtime.GOMAXPROCS(4)
 	cfg := &config{
 		t: t,
@@ -108,12 +108,12 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 		cfg.replicas[i] = newReplicaMoreParam(i, make([]string, n), false, false, false, false, false)
 	}
 
-	cfg.start()
+	cfg.start(reliable)
 
 	return cfg
 }
 
-func make_config_full(t *testing.T, n int, unreliable bool, 
+func make_config_full(t *testing.T, n int, reliable bool, 
 			electionTimeout int, heartbeatTimeout int, benOrStartTimeout int, benOrResendTimeout int) *config {
 	runtime.GOMAXPROCS(4)
 	cfg := &config{
@@ -138,17 +138,17 @@ func make_config_full(t *testing.T, n int, unreliable bool,
 							electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
 	}
 
-	cfg.start()
+	cfg.start(reliable)
 
 	return cfg
 }
 
-func (cfg *config) start() {
+func (cfg *config) start(reliable bool) {
 	// connect replicas
 	for i := 0; i < cfg.n; i++ {
 		for j := 0; j < cfg.n; j++ {
 			if i != j {
-				cfg.replicas[i].ConnectToPeersSim(j, cfg.net.conn[i][j])
+				cfg.replicas[i].ConnectToPeersSim(j, cfg.net.conn[i][j], reliable)
 			}
 		}
 		cfg.connectedToNet[i] = true
@@ -240,9 +240,12 @@ func (cfg *config) checkLogData() []state.Command {
 	return logData
 }
 
-func (cfg *config) sendCommand(rep int, cmdId int) {
+func (cfg *config) sendCommand(rep int, cmdId int) bool {
 	cmd := state.Command{ClientId: CLIENTID, OpId: int32(cmdId), Op: state.PUT, K: 0, V: 0}
 	cfg.requestChan[rep] <- cmd
+	fmt.Println("SEND COMMAND: ", cmd, " TO ", rep)
+	isLeader, _, _, _ := cfg.replicas[rep].getState()
+	return isLeader
 }
 
 func (cfg *config) cleanup() {
@@ -251,9 +254,10 @@ func (cfg *config) cleanup() {
 	}
 }
 
-func (cfg *config) sendCommandReplica(rep int, cmdId int) bool {
+func (cfg *config) sendCommandCheckResults(rep int, cmdId int, expectedReplicas int) (bool, time.Time) {
 	cfg.sendCommand(rep, cmdId)
 	t1 := time.Now()
+	fmt.Println("TIME BEGIN: ", t1, time.Now().UnixMilli())
 	for time.Since(t1).Seconds() < 2 {
 		numFound := 0
 		for i := 0; i < cfg.n; i++ {
@@ -264,12 +268,19 @@ func (cfg *config) sendCommandReplica(rep int, cmdId int) bool {
 				}
 			}
 		}
-		if numFound >= cfg.n/2+1 {
-			return true
+		if numFound >= expectedReplicas {
+			fmt.Println("TIME END: ", time.Since(t1).Milliseconds())
+			return true, time.Now()
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(3 * time.Millisecond)
 	}
-	return false
+	fmt.Println("TIME END: ", time.Since(t1).Milliseconds())
+	return false, time.Now()
+}
+
+func (cfg *config) sendCommandCheckCommit(rep int, cmdId int) bool {
+	res, _ := cfg.sendCommandCheckResults(rep, cmdId, cfg.n/2 + 1)
+	return res
 }
 
 func (cfg *config) sendCommandLeaderCheckReplicas(cmdId int, expectedReplicas int) bool {
