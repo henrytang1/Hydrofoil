@@ -96,9 +96,10 @@ func (r *Replica) startBenOrBroadcast() {
 }
 
 func (r *Replica) updateLogIfPossible(rpc ReplyMsg) bool {
-	if r.isLogMoreUpToDate(rpc) == LowerOrder {
+	if r.isLogMoreUpToDate(rpc) == LessUpToDate {
 		if r.commitIndex + 1 >= int(rpc.GetStartIndex()) {
 			r.updateLogFromRPC(rpc)
+			return true
 		} else {
 			// Otherwise, we remain out of date. If this is the case, then we wait until we're also running BenOrPlus.
 			// When we send a BenOrPlus message and we're out of date, we'll get back data allowing us to update our log.
@@ -127,8 +128,8 @@ func (r *Replica) updateLogIfPossible(rpc ReplyMsg) bool {
 			r.leaderState.repNextIndex[r.Id] = len(r.log)
 			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 		}
+		return true
 	}
-	return true
 }
 
 func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {

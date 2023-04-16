@@ -500,81 +500,81 @@ func TestRaftWithBenOr(t *testing.T) {
 	fmt.Println("... Passed")
 }
 
-// func TestRaftWithBenOrComplex(t *testing.T) {
-// 	servers := 5
-// 	cfg := make_config_full(t, servers, false, 1000, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
-// 	cfg.runReplicas()
-// 	defer cfg.cleanup()
+func TestRaftWithBenOrComplex(t *testing.T) {
+	servers := 5
+	cfg := make_config_full(t, servers, false, 1000, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
+	cfg.runReplicas()
+	defer cfg.cleanup()
 
-// 	fmt.Println("Test: raft with ben or complex...")
-// 	res := cfg.sendCommandCheckCommit(0, -1)
-// 	if !res {
-// 		t.Fatal("Failed agreement on entry")
-// 	}
+	fmt.Println("Test: raft with ben or complex...")
+	res := cfg.sendCommandCheckCommit(0, -1)
+	if !res {
+		t.Fatal("Failed agreement on entry")
+	}
 
-// 	nup := servers
-// 	for iters := 0; iters < 1000; iters++ {
-// 		leader := -1
-// 		for i := 0; i < servers; i++ {
-// 			isLeader := cfg.sendCommand(i, iters*servers+i)
-// 			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
-// 			// if ok && cfg.connected[i] {
-// 			// 	leader = i
-// 			// }
-// 			if isLeader && cfg.connectedToNet[i] {
-// 				leader = i
-// 			}
-// 		}
+	nup := servers
+	for iters := 0; iters < 1000; iters++ {
+		leader := -1
+		for i := 0; i < servers; i++ {
+			isLeader := cfg.sendCommand(i, iters*servers+i)
+			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
+			// if ok && cfg.connected[i] {
+			// 	leader = i
+			// }
+			if isLeader && cfg.connectedToNet[i] {
+				leader = i
+			}
+		}
 
-// 		if (rand.Int() % 1000) < 100 {
-// 			ms := rand.Int63() % (1000 / 2)
-// 			time.Sleep(time.Duration(ms) * time.Millisecond)
-// 		} else {
-// 			ms := (rand.Int63() % 30)
-// 			time.Sleep(time.Duration(ms) * time.Millisecond)
-// 		}
+		if (rand.Int() % 1000) < 100 {
+			ms := rand.Int63() % (1000 / 2)
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		} else {
+			ms := (rand.Int63() % 30)
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
 
-// 		if leader != -1 && (rand.Int()%1000) < int(1000)/2 {
-// 			cfg.disconnect(leader)
-// 			nup -= 1
-// 		}
+		if leader != -1 && (rand.Int()%1000) < int(1000)/2 {
+			cfg.disconnect(leader)
+			nup -= 1
+		}
 
-// 		if nup < 3 {
-// 			rep := rand.Int() % servers
-// 			if cfg.connectedToNet[rep] == false {
-// 				cfg.connect(rep)
-// 				nup += 1
-// 			}
-// 		}
-// 	}
+		if nup < 3 {
+			rep := rand.Int() % servers
+			if cfg.connectedToNet[rep] == false {
+				cfg.connect(rep)
+				nup += 1
+			}
+		}
+	}
 
-// 	for i := 0; i < servers; i++ {
-// 		if cfg.connectedToNet[i] == false {
-// 			cfg.connect(i)
-// 		}
-// 	}
+	for i := 0; i < servers; i++ {
+		if cfg.connectedToNet[i] == false {
+			cfg.connect(i)
+		}
+	}
 
-// 	time.Sleep(1 * time.Second)
-// 	res = cfg.sendCommandLeaderCheckReplicas(10000, 5)
-// 	if !res {
-// 		t.Fatal("Failed agreement on entry")
-// 	}
+	time.Sleep(1 * time.Second)
+	res = cfg.sendCommandLeaderCheckReplicas(10000, 5)
+	if !res {
+		t.Fatal("Failed agreement on entry")
+	}
 
-// 	commands := cfg.checkLogData()
-// 	fmt.Println(commandToString(commands))
-// 	assert(t, len(commands) == 1002, "Log length is not 1002")
+	commands := cfg.checkLogData()
+	fmt.Println(commandToString(commands))
+	assert(t, len(commands) == 1002, "Log length is not 1002")
 
-// 	loc := make([]int, servers)
-// 	for i := 0; i < 5000; i++ {
-// 		opId := int(commands[i+1].OpId) % servers
-// 		pos := (opId + servers - 1) % servers
-// 		if opId < loc[pos] {
-// 			t.Fatal("Out of order")
-// 		}
-// 		loc[pos] = opId
-// 	}
+	loc := make([]int, servers)
+	for i := 0; i < 5000; i++ {
+		opId := int(commands[i+1].OpId) % servers
+		pos := (opId + servers - 1) % servers
+		if opId < loc[pos] {
+			t.Fatal("Out of order")
+		}
+		loc[pos] = opId
+	}
 
-// 	fmt.Println("None out of order")
+	fmt.Println("None out of order")
 
-// 	fmt.Println("... Passed")
-// }
+	fmt.Println("... Passed")
+}

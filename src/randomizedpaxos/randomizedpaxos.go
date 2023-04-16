@@ -685,37 +685,23 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 // 	}
 // }
 
-func (r *Replica) shouldLogBeReplaced(rpc UpdateMsg, logStartIdx int) bool {
+func (r *Replica) shouldLogBeReplaced(rpc UpdateMsg, logStartIdx int) (bool, int) { // should you replace, and if you should, the first index to start replacing
 	firstEntryIndex := int(rpc.GetStartIndex())
-	changesUpToCommit := false
 
 	for i := logStartIdx; i <= int(rpc.GetCommitIndex()); i++ {
-		if i >= len(r.log) ||
-			!entryEqual(r.log[i], rpc.GetEntries()[i - firstEntryIndex]) {
-				changesUpToCommit = true
-		}
+		if i >= len(r.log) || !entryEqual(r.log[i], rpc.GetEntries()[i - firstEntryIndex]) { return true, i }
 	}
 
-	changesTotal := changesUpToCommit
+	if r.logTerm > int(rpc.GetLogTerm()) || (r.logTerm == int(rpc.GetLogTerm()) && len(r.log) >= int(rpc.GetLogLength())) {
+		return false, -1
+	}
+
 	for i := max(logStartIdx, int(rpc.GetCommitIndex()) + 1); i < int(firstEntryIndex) + len(rpc.GetEntries()); i++ {
-		// fmt.Println(rpc.GetCommitIndex(), firstEntryIndex, len(rpc.GetEntries()), i)
-		// 1, 58, 0, 2
-		if i >= len(r.log) ||
-			!entryEqual(r.log[i], 
-				rpc.GetEntries()[i - firstEntryIndex]) {
-				changesTotal = true
-		}
+		if i >= len(r.log) || !entryEqual(r.log[i], rpc.GetEntries()[i - firstEntryIndex]) { return true, i }
 	}
 
-	if !changesTotal { 
-		return false 
-	}
-
-	if !changesUpToCommit && (r.logTerm > int(rpc.GetLogTerm()) || (r.logTerm == int(rpc.GetLogTerm()) && len(r.log) >= int(rpc.GetLogLength()))) {
-		return false
-	}
-
-	return true
+	// you have a lower log term, but the entries are the same
+	return false, -1
 }
 
 func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
@@ -747,11 +733,13 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 	oldCommitIndex := r.commitIndex
 
 	var potentialEntries []Entry
-	shouldReplaceLog := r.shouldLogBeReplaced(rpc, r.commitIndex + 1)
+	shouldReplaceLog, startReplacementIdx := r.shouldLogBeReplaced(rpc, r.commitIndex + 1)
 	if shouldReplaceLog {
-		potentialEntries = r.replaceExistingLog(rpc, r.commitIndex + 1)
+		potentialEntries = r.replaceExistingLog(rpc, startReplacementIdx)
+	} else {
+		potentialEntries = rpc.GetEntries()
 	}
-
+	
 	r.commitIndex = int(rpc.GetCommitIndex())
 	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
 	if r.commitIndex > oldCommitIndex {
@@ -796,17 +784,19 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 			}
 		}
 
-		for i := 0; i < r.N; i++ {
-			r.leaderState.repNextIndex[r.Id] = len(r.log)
-			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+		r.leaderState.repNextIndex[r.Id] = len(r.log)
+		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 
-			if i != int(r.Id) || i != int(rpc.GetSenderId()) {
-				r.leaderState.repNextIndex[i] = min(r.leaderState.repNextIndex[i], oldCommitIndex + 1)
-				r.leaderState.repMatchIndex[i] = min(r.leaderState.repMatchIndex[i], oldCommitIndex)
-			}
-
+		if shouldReplaceLog {
 			r.leaderState.repNextIndex[rpc.GetSenderId()] = int(rpc.GetLogLength())
 			r.leaderState.repMatchIndex[rpc.GetSenderId()] = int(rpc.GetLogLength()) - 1
+
+			for i := 0; i < r.N; i++ {
+				if i != int(r.Id) || i != int(rpc.GetSenderId()) {
+					r.leaderState.repNextIndex[i] = min(r.leaderState.repNextIndex[i], startReplacementIdx)
+					r.leaderState.repMatchIndex[i] = min(r.leaderState.repMatchIndex[i], startReplacementIdx - 1)
+				}
+			}
 		}
 	}
 
@@ -889,7 +879,7 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 	r.handleIncomingTerm(rpc)
 
 	// only respond if we have a higher commit index
-	if r.isLogMoreUpToDate(rpc) != HigherOrder {
+	if r.isLogMoreUpToDate(rpc) != MoreUpToDate {
 		return
 	}
 
@@ -909,7 +899,7 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 func (r *Replica) handleGetCommittedDataReply(rpc *GetCommittedDataReply) {
 	r.handleIncomingTerm(rpc)
 
-	if r.isLogMoreUpToDate(rpc) == LowerOrder {
+	if r.isLogMoreUpToDate(rpc) == LessUpToDate {
 		r.updateLogFromRPC(rpc)
 	} else {
 		for _, v := range(rpc.Entries) {
@@ -930,9 +920,10 @@ func (r *Replica) handleGetCommittedDataReply(rpc *GetCommittedDataReply) {
 					r.log = append(r.log, entry)
 					r.inLog.add(entry)
 				}
-
-				// TODO: update match index here
 			}
+
+			r.leaderState.repNextIndex[r.Id] = len(r.log)
+			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
 		}
 	}
 }

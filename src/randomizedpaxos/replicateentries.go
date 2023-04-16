@@ -11,7 +11,7 @@ import (
 func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	r.handleIncomingTerm(rpc)
 
-	if r.term > int(rpc.Term) || r.isLogMoreUpToDate(rpc) == HigherOrder {
+	if r.term > int(rpc.Term) || r.isLogMoreUpToDate(rpc) == MoreUpToDate {
 		fmt.Println("strange", r.Id, r.term, int(rpc.Term), r.isLogMoreUpToDate(rpc), "our data", r.commitIndex, r.logTerm, len(r.log), "rpc data", rpc.GetCommitIndex(), rpc.GetLogTerm(), rpc.GetLogLength())
 
 		entries := make([]Entry, 0)
@@ -73,7 +73,15 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	oldCommitIndex := r.commitIndex
 
 	dlog.Println("Replica", r.Id, "is accepting entries from", rpc.SenderId, "before log", logToString(r.log))
-	potentialEntries := r.replaceExistingLog(rpc, int(rpc.PrevLogIndex) + 1)
+
+	var potentialEntries []Entry
+	shouldReplaceLog, startReplacementIdx := r.shouldLogBeReplaced(rpc, int(rpc.PrevLogIndex) + 1)
+	if shouldReplaceLog {
+		potentialEntries = r.replaceExistingLog(rpc, startReplacementIdx)
+	} else {
+		potentialEntries = rpc.GetEntries()
+	}
+
 	dlog.Println("Replica", r.Id, "is accepting entries from", rpc.SenderId, "after log", logToString(r.log))
 
 	for _, v := range(potentialEntries) {
@@ -158,8 +166,7 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	r.leaderState.lastReplicaTimestamp[rpc.SenderId] = replyTimestamp
 
 	fmt.Println("Leader", r.Id, ": ", r.commitIndex, r.logTerm, len(r.log), ", Replica", rpc.SenderId, ": ", rpc.CommitIndex, rpc.LogTerm, rpc.LogLength, "PQEntries", "[", logToString(rpc.PQEntries), "]")
-	if r.isLogMoreUpToDate(rpc) == LowerOrder {
-		// todo: leader needs to handle the case where the committed entries match up with its own!
+	if r.isLogMoreUpToDate(rpc) == LessUpToDate {
 		r.updateLogFromRPC(rpc)
 	} else {
 		for _, v := range(rpc.Entries) {

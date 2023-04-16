@@ -191,14 +191,14 @@ func (r *Replica) handleIncomingTerm(rpc RPC) {
 }
 
 const ( // for benOrStatus
-	LowerOrder uint8	= 0
-	SameOrder	   	= 1
-	HigherOrder	   	= 2
+	LessUpToDate uint8	= 0
+	EquallyUpToDate	   	= 1
+	MoreUpToDate	   	= 2
 )
 
 func convertBoolToOrder (b bool) uint8 {
-	if b { return HigherOrder }
-	return LowerOrder
+	if b { return MoreUpToDate }
+	return LessUpToDate
 }
 
 func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
@@ -211,7 +211,7 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 	if len(r.log) != int(rpc.GetLogLength()) {
 		return convertBoolToOrder(len(r.log) > int(rpc.GetLogLength()))
 	}
-	return SameOrder
+	return EquallyUpToDate
 }
 
 // func benOrUncommittedLogEntry() Entry {
