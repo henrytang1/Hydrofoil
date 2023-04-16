@@ -179,6 +179,9 @@ func (r *Replica) handleIncomingTerm(rpc RPC) {
 
 			timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
 			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
+
+			timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+			setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
 		}
 		if r.candidateState.isCandidate {
 			r.candidateState = emptyCandidateState

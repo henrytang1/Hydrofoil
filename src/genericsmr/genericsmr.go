@@ -472,10 +472,13 @@ func (r *Replica) replicaListener(rid int, reader LockedReader) {
 
 				if !r.TestingState.IsProduction {
 					if t, ok := obj.(HasSenderId); ok {
+						r.TestingState.IsConnected.Mu.Lock()
 						if !r.TestingState.IsConnected.Connected[int(t.GetSenderId())] {
-							// fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
+							r.TestingState.IsConnected.Mu.Unlock()
+							fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
 							continue
 						} else {
+							r.TestingState.IsConnected.Mu.Unlock()
 							rpair.Chan <- obj
 						}
 					}
@@ -629,9 +632,14 @@ func (r *Replica) RegisterRPC(msgObj fastrpc.Serializable, notify chan fastrpc.S
 }
 
 func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
-	if !r.TestingState.IsProduction && !r.TestingState.IsConnected.Connected[int(peerId)] {
-		// fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")
-		return
+	if !r.TestingState.IsProduction{
+		r.TestingState.IsConnected.Mu.Lock()
+		if !r.TestingState.IsConnected.Connected[int(peerId)] {
+			r.TestingState.IsConnected.Mu.Unlock()
+			// fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")
+			return
+		}
+		r.TestingState.IsConnected.Mu.Unlock()
 	}
 
 	if !r.TestingState.IsProduction && !r.TestingState.IsReliable[int(peerId)] {
@@ -644,7 +652,9 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 				return
 			}
 
+			r.TestingState.IsConnected.Mu.Lock()
 			if r.TestingState.IsConnected.Connected[int(peerId)] {
+				r.TestingState.IsConnected.Mu.Unlock()
 				// fmt.Println("Replica", r.Id, "sending message to peer", peerId)
 				w := r.PeerWriters[peerId]
 				w.mu.Lock()
@@ -652,6 +662,8 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 				msg.Marshal(w)
 				w.Flush()
 				w.mu.Unlock()
+			} else {
+				r.TestingState.IsConnected.Mu.Unlock()
 			}
 			// else {
 			// 	fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")

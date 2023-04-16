@@ -422,7 +422,9 @@ func (r *Replica) executeCommand(i int) {
 			}
 		}
 	} else {
+		fmt.Println("Replica", r.Id, "executing command", i, "START")
 		r.TestingState.ResponseChan <- genericsmr.RepCommand{int(r.Id), r.log[i].Data}
+		fmt.Println("Replica", r.Id, "executing command", i, "END")
 	}
 }
 
@@ -453,12 +455,12 @@ func (r *Replica) run() {
 		if r.leaderState.isLeader {
 			matchIndices := append(make([]int, 0, r.N), r.leaderState.repMatchIndex...)
 			sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
-			dlog.Println("matchIndices", matchIndices)
+			dlog.Println("Replica", r.Id, "matchIndices", matchIndices)
 			r.commitIndex = max(r.commitIndex, matchIndices[r.N/2])
 		}
 
 		if r.commitIndex > r.lastApplied {
-			fmt.Println("Replica", r.Id, "executing", r.commitIndex, r.lastApplied, len(logToString(r.log)))
+			fmt.Println("Replica", r.Id, "executing from", r.lastApplied + 1, "to", r.commitIndex, "log is: ", logToString(r.log))
 		}
 
 		// Execution of the leader's state machine
@@ -745,12 +747,16 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 		if !r.seenBefore(v) { r.pq.push(v) }
 	}
 
-	fmt.Println("Replica", r.Id, "pq values5", r.pq.extractList())
+	fmt.Println("Replica", r.Id, "pq values5", logToString(r.pq.extractList()))
 
 	if r.leaderState.isLeader {
-		if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {
-			log.Fatal("Leader", r.Id, "got an RPC with a commit index that is less than the last entry in the RPC from", rpc.GetSenderId())
-		}
+		// the following case actually shouldn't be an error because it's possible in a unique case
+		// ex: consider 5 replicas. Replica 0 is the leader, and it replicates 5 entries on all replicas, but only replica 1 knows the new commitIndex before replica 0 goes down.
+		// Now, replica 2 is the new leader (receiving votes from replicas 3, and 4), and sends a replicate entries to replica 1.
+		// Replica 1 has a higher commitIndex!
+		// if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {
+		// 	log.Fatal("Leader", r.Id, "got an RPC with a commit index that is less than the last entry in the RPC from", rpc.GetSenderId())
+		// }
 
 		for !r.pq.isEmpty() {
 			entry := r.pq.pop()
@@ -868,6 +874,7 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 	}
+	fmt.Println("Replica", r.Id, "sending get committed data reply", r.commitIndex, len(r.log))
 	r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
 }
 

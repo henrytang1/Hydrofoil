@@ -26,6 +26,8 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 			Success: False, NewRequestedIndex: -1,
 		}
 
+		fmt.Println("Replica", r.Id, "sending to", rpc.SenderId, "ReplicateEntriesReply", "AAAA")
+
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 
 		if r.term == int(rpc.Term) {
@@ -38,6 +40,9 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
 	setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 
+	timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+	setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
+
 	r.lastHeardFromLeader = time.Now()
 
 	if int(rpc.PrevLogIndex) >= len(r.log) || 
@@ -49,12 +54,13 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		}
 
 		// NewRequestedIndex is not used because the leader will either switch to a follower (because of the term) or ignore this reply (because it has an older LeaderTimestamp)
-		fmt.Println("HUH3", r.Id, int32(r.commitIndex) + 1)
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			ReplyTimestamp: time.Now().UnixNano(), StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 			Success: False, NewRequestedIndex: int32(r.commitIndex) + 1,
 		}
+
+		fmt.Println("Replica", r.Id, "sending to", rpc.SenderId, "ReplicateEntriesReply", "BBBB")
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 		return
@@ -93,6 +99,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	if r.benOrState.benOrStage == Broadcasting && r.commitIndex + 1 < len(r.log) && 
 		r.benOrState.benOrBroadcastEntry != r.log[r.commitIndex + 1] {
 		r.benOrState.biasedCoin = true
+		fmt.Println("Replica", r.Id, "set biased coin to true")
 	}
 
 	entries := make([]Entry, 0)
@@ -101,7 +108,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	}
 
 	if !r.benOrState.benOrRunning || r.benOrState.benOrStage == Broadcasting {
-		fmt.Println("HUH", r.Id, rpc.GetStartIndex() + int32(len(rpc.Entries)), logToString(r.pq.extractList()))
+		fmt.Println("HUH", r.Id, "sending to", rpc.SenderId, rpc.GetStartIndex() + int32(len(rpc.Entries)), logToString(r.pq.extractList()))
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			ReplyTimestamp: time.Now().UnixNano(), StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
@@ -110,7 +117,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 	} else {
-		fmt.Println("HUH2", r.Id, int32(r.commitIndex) + 1, logToString(r.pq.extractList()))
+		fmt.Println("HUH2", r.Id, "sending to", rpc.SenderId, int32(r.commitIndex) + 1, logToString(r.pq.extractList()))
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			ReplyTimestamp: time.Now().UnixNano(), StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
@@ -120,6 +127,16 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 	}
 }
+
+
+
+// ISSUE: Replica 4 is the leader, and commits up to idx 100. It updates its commit index to 100, but the other replicas don't before replica 4 is disconnected.
+// Now, replica 2 is elected leader, and adds a bunch of entries to its log. It updates its commit index to 110, but the other replicas don't before replica 2 is disconnected.
+// Replica 4 is reelected leader (since it has a higher commitindex), and then tells the other replicas to change entries 100 to 110. This is a problem!!!!
+
+// Potential solution: when you are elected, you only compare logterm and index. You can be the leader with a lower commitIndex.
+// When updating your log, you only replace your log with that from the rpc, if entries up to commitindex are different or if your logterm is lower.
+
 
 func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	r.handleIncomingTerm(rpc)

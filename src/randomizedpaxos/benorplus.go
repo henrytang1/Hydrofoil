@@ -11,6 +11,7 @@ import (
 
 /************************************** Ben Or Braodcast **********************************************/
 func (r *Replica) startBenOrPlus() {
+	fmt.Println("Replica", r.Id, "hmmm3", "log is", logToString(r.log))
 	r.startNewBenOrPlusIteration(0, make([]Entry, 0), make([]bool, r.N))
 }
 
@@ -21,14 +22,16 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 	// 	}
 	// }
 
+	fmt.Println("Replica", r.Id, "starting ben or plus for iteration", iteration)
+
 	var broadcastEntry Entry
 	benOrIndex := r.commitIndex + 1
 	if benOrIndex < len(r.log) {
-		dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from log", time.Now().UnixMilli())
+		dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from log")
 		broadcastEntry = r.log[benOrIndex]
 		broadcastEntry.Index = int32(r.commitIndex)+1
 	} else if !r.pq.isEmpty() {
-		dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from pq", time.Now().UnixMilli())
+		dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from pq, current commit indx:", r.commitIndex)
 		broadcastEntry = r.pq.peek()
 		broadcastEntry.Index = int32(r.commitIndex)+1
 	} else if iteration == 0 {
@@ -75,7 +78,7 @@ func (r *Replica) startBenOrBroadcast() {
 		entries = r.log[r.commitIndex + 1:]
 	}
 
-	fmt.Println("Replica", r.Id, "starting Ben Or Broadcast", r.benOrState.benOrIteration, r.benOrState.benOrBroadcastEntry, r.benOrState.heardServerFromBroadcast, "with log", len(r.log), "pq entries: ", len(r.pq.extractList()))
+	fmt.Println("Replica", r.Id, "starting Ben Or Broadcast", r.benOrState.benOrIteration, r.benOrState.benOrBroadcastEntry.Data.OpId, r.benOrState.heardServerFromBroadcast, "with log", len(r.log), "pq entries: ", logToString(r.pq.extractList()))
 	args := &BenOrBroadcast{
 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 		Iteration: int32(r.benOrState.benOrIteration), BroadcastEntry: r.benOrState.benOrBroadcastEntry,
@@ -162,6 +165,7 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 			// }
 			heardServerFromBroadcast := make([]bool, r.N)
 			heardServerFromBroadcast[rpc.GetSenderId()] = true
+			fmt.Println("Replica", r.Id, "hmmm1")
 			r.startNewBenOrPlusIteration(int(rpc.GetIteration()), []Entry{rpc.GetBroadcastEntry()}, heardServerFromBroadcast)
 		} else if r.benOrState.benOrIteration == int(rpc.GetIteration()) && r.benOrState.benOrStage == Broadcasting {
 			heardFromServerBefore := r.benOrState.heardServerFromBroadcast[rpc.GetSenderId()]
@@ -448,6 +452,7 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 					} else if r.benOrState.benOrStage == StageTwo {
 						fmt.Println("Consensus reached on server", r.Id, "for stage 2 with vote", vote)
 						if vote == Vote0 {
+							fmt.Println("Replica", r.Id, "hmmm2")
 							r.startNewBenOrPlusIteration(r.benOrState.benOrIteration + 1, make([]Entry, 0), make([]bool, r.N))
 						} else if vote == Vote1 {
 							// commit entry
@@ -457,18 +462,21 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							potentialEntries := make([]Entry, 0)
 							r.benOrState = emptyBenOrState
 
-							fmt.Println("Committing entry", newCommittedEntry, "on server", r.Id)
+							fmt.Println("Committing entry (using ben or)", newCommittedEntry, "on server", r.Id, "log is", logToString(r.log))
 
-							if benOrIndex < len(r.log) && !entryEqual(r.log[benOrIndex], newCommittedEntry) {
-								for i := benOrIndex; i < len(r.log); i++ {
-									r.inLog.remove(r.log[i])
-									potentialEntries = append(potentialEntries, r.log[i])
+							if benOrIndex < len(r.log) {
+								if !entryEqual(r.log[benOrIndex], newCommittedEntry) {
+									fmt.Println("Replica", r.Id, "not equal", r.log[benOrIndex], newCommittedEntry)
+									for i := benOrIndex; i < len(r.log); i++ {
+										r.inLog.remove(r.log[i])
+										potentialEntries = append(potentialEntries, r.log[i])
+									}
+									r.log = r.log[:benOrIndex]
+
+									r.inLog.add(newCommittedEntry)
+									r.log = append(r.log, newCommittedEntry)
+									r.pq.remove(newCommittedEntry)
 								}
-								r.log = r.log[:benOrIndex]
-
-								r.inLog.add(newCommittedEntry)
-								r.log = append(r.log, newCommittedEntry)
-								r.pq.remove(newCommittedEntry)
 							} else {
 								r.inLog.add(newCommittedEntry)
 								r.log = append(r.log, newCommittedEntry)

@@ -3,7 +3,6 @@ package randomizedpaxos
 import (
 	"fmt"
 	"math/rand"
-	"state"
 	"testing"
 	"time"
 )
@@ -18,14 +17,6 @@ const benOrStartTimeout = 30
 const benOrResendTimeout = 15
 
 func TestInitialElection(t *testing.T) {
-	// replica := NewReplicaMoreParam(0, make([]string, 3), false, false, false, false, false)
-	// setTimer(replica.heartbeatTimer, time.Duration(6000)*time.Millisecond)
-
-	// <-replica.heartbeatTimer.timer.C
-	// fmt.Println("hello")
-
-	// dlog.Println("TEST")
-
 	servers := 3
 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
 	cfg.runReplicas()
@@ -80,13 +71,13 @@ func assert(t *testing.T, cond bool, msg string) {
 	}
 }
 
-func TestPQ(t *testing.T) {
-	pq := newExtendedPriorityQueue()
-	pq.push(Entry{Data: state.Command{}, SenderId: 1, Timestamp: 5})
-	pq.push(Entry{Data: state.Command{}, SenderId: 2, Timestamp: 3})
+// func TestPQ(t *testing.T) {
+// 	pq := newExtendedPriorityQueue()
+// 	pq.push(Entry{Data: state.Command{}, SenderId: 1, Timestamp: 5})
+// 	pq.push(Entry{Data: state.Command{}, SenderId: 2, Timestamp: 3})
 
-	fmt.Println(logToString(pq.extractList()))
-}
+// 	fmt.Println(logToString(pq.extractList()))
+// }
 
 func TestFailAgree(t *testing.T) {
 	servers := 5
@@ -100,7 +91,7 @@ func TestFailAgree(t *testing.T) {
 	cfg.disconnect((leader + 1) % 5)
 	cfg.disconnect((leader + 2) % 5)
 
-	fmt.Println("Testing agreement on 3 replicas (fail replica)...")
+	fmt.Println("Testing agreement on 3 replicas (disconnected replica)...")
 	iters := 3
 	index := 1
 	for ; index < iters+1; index++ {
@@ -119,7 +110,7 @@ func TestFailAgree(t *testing.T) {
 	cfg.disconnect((leader+1) % 5)
 	cfg.disconnect((leader+2) % 5)
 
-	fmt.Println("Testing agreement on 3333 replicas (fail leader)...")
+	fmt.Println("Testing agreement on 3 replicas (disconnected leader)...")
 	iters = 6
 	for ; index < iters+1; index++ {
 		res := cfg.sendCommandLeader(index * 100)
@@ -130,7 +121,7 @@ func TestFailAgree(t *testing.T) {
 	assert(t, len(cfg.checkLogData()) == 6, "Log length is not 6")
 
 	cfg.disconnect((leader+3) % 5)
-	fmt.Println("Testing no agreement on asdf replicas (fail leader)...")
+	fmt.Println("Testing no agreement on replicas (disconnected leader)...")
 	iters = 8
 	for ; index < iters+1; index++ {
 		res := cfg.sendCommandCheckCommit((leader+4)%5, index * 100)
@@ -202,11 +193,11 @@ func TestBenOrMultiple(t *testing.T) {
 
 func TestBenOrRapidEntries(t *testing.T) {
 	servers := 5
-	cfg := make_config_full(t, servers, true, 1e9, 1e9, benOrStartTimeout, 10)
+	cfg := make_config_full(t, servers, false, 1e9, 1e9, benOrStartTimeout, 10)
 	cfg.runReplicas()
 	defer cfg.cleanup()
 
-	fmt.Println("Test: ben or multiple...")
+	fmt.Println("Test: ben or rapid entries...")
 	fmt.Println("Test 6 commands")
 
 	oldTime := time.Now()
@@ -243,12 +234,12 @@ func TestBenOrRapidEntries(t *testing.T) {
 	cfg.sendCommand(1, 1200)
 	cfg.sendCommand(0, 1300)
 
+	time.Sleep(500 * time.Millisecond)
+
 	res, newTime = cfg.sendCommandCheckResults(0, 1400, 5)
 	if !res {
 		t.Fatal("Failed agreement on entry")
 	}
-
-	fmt.Println("Time taken (14 commands): ", newTime.Sub(oldTime))
 
 	commands := cfg.checkLogData()
 	assert(t, len(commands) == 20, "Log length is not 20")
@@ -270,7 +261,7 @@ func TestFigure8(t *testing.T) {
 	}
 
 	nup := servers
-	for iters := 0; iters < 100; iters++ {
+	for iters := 0; iters < 1000; iters++ {
 		leader := -1
 		for i := 0; i < servers; i++ {
 			isLeader := cfg.sendCommand(i, iters*servers+i)
@@ -312,19 +303,19 @@ func TestFigure8(t *testing.T) {
 	}
 
 	time.Sleep(1 * time.Second)
-	res = cfg.sendCommandLeaderCheckReplicas(1000, 5)
+	res = cfg.sendCommandLeaderCheckReplicas(10000, 5)
 	if !res {
 		t.Fatal("Failed agreement on entry")
 	}
 
 	commands := cfg.checkLogData()
-	fmt.Println(commandToString(commands))
-	assert(t, len(commands) == 502, "Log length is not 502")
+	fmt.Println("length: ", len(commands), "data: ", commandToString(commands))
+	assert(t, len(commands) == 5002, "Log length is not 5002")
 
-	loc := make([]int, 5)
-	for i := 0; i < 500; i++ {
+	loc := make([]int, servers)
+	for i := 0; i < 5000; i++ {
 		opId := int(commands[i+1].OpId) % servers
-		pos := opId % servers
+		pos := (opId + servers - 1) % servers
 		if opId < loc[pos] {
 			t.Fatal("Out of order")
 		}
@@ -338,7 +329,7 @@ func TestFigure8(t *testing.T) {
 
 func TestBenOrManyReconnects(t *testing.T) {
 	servers := 5
-	cfg := make_config_full(t, servers, true, 1e9, 1e9, benOrStartTimeout, 10)
+	cfg := make_config_full(t, servers, false, 1e9, 1e9, benOrStartTimeout, 10)
 	cfg.runReplicas()
 	defer cfg.cleanup()
 
@@ -424,10 +415,10 @@ func TestBenOrManyReconnects(t *testing.T) {
 	fmt.Println(commandToString(commands))
 	assert(t, len(commands) == 501, "Log length is not 501")
 
-	loc := make([]int, 5)
+	loc := make([]int, servers)
 	for i := 0; i < 500; i++ {
 		opId := int(commands[i+1].OpId) % servers
-		pos := opId % servers
+		pos := (opId + servers - 1) % servers
 		if opId < loc[pos] {
 			t.Fatal("Out of order")
 		}
@@ -444,164 +435,146 @@ func TestBenOrManyReconnects(t *testing.T) {
 	fmt.Println("... Passed")
 }
 
-	// asdf := newExtendedPriorityQueue()
+func TestRaftWithBenOr(t *testing.T) {
+	servers := 5
+	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
+	cfg.runReplicas()
+	defer cfg.cleanup()
 
-	// k := Entry{Data: state.Command{}, SenderId: 1, Timestamp: 4}
+	fmt.Println("Test: basic agreement...")
+	leader1 := cfg.checkOneLeader()
 
-	// asdf.push(k)
-	// asdf.push(Entry{Data: state.Command{}, SenderId: 1, Timestamp: 5})
-	// asdf.push(Entry{Data: state.Command{}, SenderId: 2, Timestamp: 3})
+	for i := 0; i < servers; i++ {
+		cfg.replicas[i].electionTimeout = 1e9
+	}
 
-	// asdf.remove(k)
-	// fmt.Println(asdf.pop())
-	// fmt.Println(asdf.pop())
+	time.Sleep(1 * time.Second)
 
-	// fmt.Println(asdf.isEmpty())
-	// // fmt.Println(asdf.pop())
+	leader2 := cfg.checkOneLeader()
+	assert(t, leader1 == leader2, "Leader changed")
 
-	// fmt.Println(asdf.isEmpty())
+	// fmt.Println("Testing agreement on 3 entries...")
+	for iters := 0; iters < 10; iters++ {
+		for i := 0; i < servers; i++ {
+			cfg.sendCommand(i, iters*servers+i+1)
+			fmt.Println("Just sent", iters*servers+i, "to", i)
+		}
 
+		if (rand.Int() % 1000) < 100 {
+			ms := rand.Int63() % (1000 / 2)
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		} else {
+			ms := (rand.Int63() % 13)
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+	}
 
-	// r1, w1 := io.Pipe()
-	// r2, w2 := io.Pipe()
-	// c1 := genericsmr.NewSimConn(r1, w2)
-	// c2 := genericsmr.NewSimConn(r2, w1)
+	cfg.commandsExecuted()
+	// fmt.Println("Commands of length", len(commands), ": ", commandToString(commands))
 
-	// c1.Connect()
-	// c2.Connect()
+	cfg.disconnect(leader1)
 
-	// // b1r := bufio.NewReader(c1.PipeReader)
-	// b1w := bufio.NewWriter(c1)
-	// b2r := bufio.NewReader(c2)
-	// // b2w := bufio.NewWriter(c2.PipeWriter)
+	time.Sleep(5 * time.Second)
 
-	// go func() {
-	// 	b1w.WriteString("hello")
-	// 	b1w.Flush()
-	// }()
-
-	// buf := make([]byte, 10)
-	// by, _ := b2r.ReadByte()
-
-	// n, err := b2r.Read(buf)
-	// fmt.Println(string(by))
-	// fmt.Println(n, err, string(buf[:n]))
-
-	// time.Sleep(100 * time.Second)
-
-
-
-	    // // create a pipe
-		// r, w := io.Pipe()
-
-		// // example of concurrent reading and writing
-		// go func() {
-		// 	// write some data to the pipe
-		// 	_, err := w.Write([]byte("strange"))
-		// 	if err != nil {
-		// 		panic(err)
-		// 	}
+	commands := cfg.checkLogData()
+	fmt.Println("Commands of length", len(commands), ": ", commandToString(commands))
 	
-		// 	// don't close the writer
-		// 	w.Close()
-		// }()
-	
-		// // read from the pipe
-		// time.Sleep(1 * time.Second)
-		// buf := make([]byte, 10)
-		// for {
-		// 	n, err := r.Read(buf)
-		// 	fmt.Println("err", err)
-		// 	if err != nil {
-		// 		// panic(err)
-		// 		break
-		// 	}
-		// 	message := string(buf[:n])
-		// 	println(message)
-		// }
-	
-		// // sleep to simulate some work being done
-		// time.Sleep(1 * time.Second)
-		
-	// a, b := io.Pipe()
-	// b.Write([]byte("hello"))
-	// var data []byte
-	// n, err = a.Read(data)
-	// fmt.Println(n, err, data)
+	cfg.connect(leader1)
+	time.Sleep(1 * time.Second)
+	commands = cfg.checkLogData()
+	fmt.Println("Commands of length", len(commands), ": ", commandToString(commands))
+	assert(t, len(commands) == 50, "Log length is not 50")
 
-	// // is a leader elected?
-	// cfg.checkOneLeader()
+	loc := make([]int, servers)
+	for i := 0; i < 30; i++ {
+		opId := int(commands[i].OpId) % servers
+		pos := (opId + servers - 1) % servers
+		if opId < loc[pos] {
+			t.Fatal("Out of order")
+		}
+		loc[pos] = opId
+	}
 
-	// // does the leader+Term stay the same there is no failure?
-	// term1 := cfg.checkTerms()
-	// time.Sleep(2 * RaftElectionTimeout)
-	// term2 := cfg.checkTerms()
-	// if term1 != term2 {
-	// 	fmt.Println("warning: Term changed even though there were no failures")
-	// }
+	fmt.Println("None out of order")
 
-	// time.Sleep(5 * time.Second)
+	fmt.Println("... Passed")
+}
 
-	
+// func TestRaftWithBenOrComplex(t *testing.T) {
+// 	servers := 5
+// 	cfg := make_config_full(t, servers, false, 1000, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
+// 	cfg.runReplicas()
+// 	defer cfg.cleanup()
 
-	// servers := 3
-	// cfg := make_config(t, servers, false)
-	// // defer cfg.cleanup()
+// 	fmt.Println("Test: raft with ben or complex...")
+// 	res := cfg.sendCommandCheckCommit(0, -1)
+// 	if !res {
+// 		t.Fatal("Failed agreement on entry")
+// 	}
 
-	// fmt.Println("Test: initial election...")
+// 	nup := servers
+// 	for iters := 0; iters < 1000; iters++ {
+// 		leader := -1
+// 		for i := 0; i < servers; i++ {
+// 			isLeader := cfg.sendCommand(i, iters*servers+i)
+// 			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
+// 			// if ok && cfg.connected[i] {
+// 			// 	leader = i
+// 			// }
+// 			if isLeader && cfg.connectedToNet[i] {
+// 				leader = i
+// 			}
+// 		}
 
-	// args := &randomizedpaxosproto.InfoBroadcastReply{
-	// 	SenderId: 0, Term: 100}
-	// cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
+// 		if (rand.Int() % 1000) < 100 {
+// 			ms := rand.Int63() % (1000 / 2)
+// 			time.Sleep(time.Duration(ms) * time.Millisecond)
+// 		} else {
+// 			ms := (rand.Int63() % 30)
+// 			time.Sleep(time.Duration(ms) * time.Millisecond)
+// 		}
 
-	// cfg.Disconnect(0, 1)
+// 		if leader != -1 && (rand.Int()%1000) < int(1000)/2 {
+// 			cfg.disconnect(leader)
+// 			nup -= 1
+// 		}
 
-	// args = &randomizedpaxosproto.InfoBroadcastReply{
-	// 	SenderId: 0, Term: 300}
-	// cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
+// 		if nup < 3 {
+// 			rep := rand.Int() % servers
+// 			if cfg.connectedToNet[rep] == false {
+// 				cfg.connect(rep)
+// 				nup += 1
+// 			}
+// 		}
+// 	}
 
-	// cfg.Connect(0, 1)
+// 	for i := 0; i < servers; i++ {
+// 		if cfg.connectedToNet[i] == false {
+// 			cfg.connect(i)
+// 		}
+// 	}
 
-	// args = &randomizedpaxosproto.InfoBroadcastReply{
-	// 	SenderId: 0, Term: 500}
-	// cfg.replicas[0].SendMsg(1, cfg.replicas[0].infoBroadcastReplyRPC, args)
+// 	time.Sleep(1 * time.Second)
+// 	res = cfg.sendCommandLeaderCheckReplicas(10000, 5)
+// 	if !res {
+// 		t.Fatal("Failed agreement on entry")
+// 	}
 
-	// time.Sleep(2000 * time.Second)
+// 	commands := cfg.checkLogData()
+// 	fmt.Println(commandToString(commands))
+// 	assert(t, len(commands) == 1002, "Log length is not 1002")
 
+// 	loc := make([]int, servers)
+// 	for i := 0; i < 5000; i++ {
+// 		opId := int(commands[i+1].OpId) % servers
+// 		pos := (opId + servers - 1) % servers
+// 		if opId < loc[pos] {
+// 			t.Fatal("Out of order")
+// 		}
+// 		loc[pos] = opId
+// 	}
 
+// 	fmt.Println("None out of order")
 
-
-
-
-
-	// infoBroadcastReplyS := <- cfg.replicas[1].infoBroadcastReplyChan
-	
-	// fmt.Println(infoBroadcastReplyS)
-
-	// cfg.replicas[0].PeerWriters[1].Write([]byte("hello"))
-	// cfg.replicas[0].PeerWriters[1].Flush()
-
-	// cfg.replicas[0].PeerWriters[1].Write([]byte(" world"))
-	// cfg.replicas[0].PeerWriters[1].Flush()
-
-	// <- cfg.replicas[1].infoBroadcastReplyChan
-
-	// fmt.Println(cfg.replicas[1].PeerReaders[0].Buffered())
-	// _, err := cfg.replicas[1].PeerReaders[0].Peek(1)
-	// if err != nil {
-	// 	fmt.Println("asdf ", err)
-	// }
-
-	// bs, _ := io.ReadAll(cfg.replicas[1].PeerReaders[0])
-	// fmt.Println(string(bs))
-
-	// bs, _ = io.ReadAll(cfg.replicas[1].PeerReaders[0])
-	// fmt.Println(string(bs))
-
-	// a := genericsmr.NewSimConn()
-	// b := bufio.NewReader(a)
-	// c := bufio.NewWriter(a)
-	// c.Write([]byte("hello"))
-	// c.Flush()
-	// bs, _ = io.ReadAll(b)
-	// fmt.Println(string(bs))
+// 	fmt.Println("... Passed")
+// }
