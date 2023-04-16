@@ -685,21 +685,44 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 // 	}
 // }
 
-func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
-	potentialEntries := make([]Entry, 0)
-
-	dlog.Println("Replica", r.Id, "replacing existing log", len(r.log), rpc.GetStartIndex(), len(rpc.GetEntries()), logStartIdx)
+func (r *Replica) shouldLogBeReplaced(rpc UpdateMsg, logStartIdx int) bool {
 	firstEntryIndex := int(rpc.GetStartIndex())
-	changes := false
-	for i := logStartIdx - firstEntryIndex; i < len(rpc.GetEntries()); i++ {
-		if i + firstEntryIndex >= len(r.log) ||
-			!entryEqual(r.log[i + firstEntryIndex], rpc.GetEntries()[i]) {
-			changes = true
+	changesUpToCommit := false
+
+	for i := logStartIdx; i <= int(rpc.GetCommitIndex()); i++ {
+		if i >= len(r.log) ||
+			!entryEqual(r.log[i], rpc.GetEntries()[i - firstEntryIndex]) {
+				changesUpToCommit = true
 		}
 	}
 
-	if !changes { return potentialEntries }
+	changesTotal := changesUpToCommit
+	for i := max(logStartIdx, int(rpc.GetCommitIndex()) + 1); i < int(firstEntryIndex) + len(rpc.GetEntries()); i++ {
+		// fmt.Println(rpc.GetCommitIndex(), firstEntryIndex, len(rpc.GetEntries()), i)
+		// 1, 58, 0, 2
+		if i >= len(r.log) ||
+			!entryEqual(r.log[i], 
+				rpc.GetEntries()[i - firstEntryIndex]) {
+				changesTotal = true
+		}
+	}
 
+	if !changesTotal { 
+		return false 
+	}
+
+	if !changesUpToCommit && (r.logTerm > int(rpc.GetLogTerm()) || (r.logTerm == int(rpc.GetLogTerm()) && len(r.log) >= int(rpc.GetLogLength()))) {
+		return false
+	}
+
+	return true
+}
+
+func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
+	dlog.Println("Replica", r.Id, "replacing existing log", len(r.log), rpc.GetStartIndex(), len(rpc.GetEntries()), logStartIdx)
+	firstEntryIndex := int(rpc.GetStartIndex())
+
+	potentialEntries := make([]Entry, 0)
 	for i := logStartIdx; i < len(r.log); i++ {
 		r.inLog.remove(r.log[i])
 		potentialEntries = append(potentialEntries, r.log[i])
@@ -720,10 +743,14 @@ func (r *Replica) replaceExistingLog (rpc UpdateMsg, logStartIdx int) []Entry {
 	return potentialEntries
 }
 
-func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
+func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 	oldCommitIndex := r.commitIndex
 
-	potentialEntries := r.replaceExistingLog(rpc, r.commitIndex + 1)
+	var potentialEntries []Entry
+	shouldReplaceLog := r.shouldLogBeReplaced(rpc, r.commitIndex + 1)
+	if shouldReplaceLog {
+		potentialEntries = r.replaceExistingLog(rpc, r.commitIndex + 1)
+	}
 
 	r.commitIndex = int(rpc.GetCommitIndex())
 	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
@@ -770,19 +797,20 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) {
 		}
 
 		for i := 0; i < r.N; i++ {
+			r.leaderState.repNextIndex[r.Id] = len(r.log)
+			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
+
 			if i != int(r.Id) || i != int(rpc.GetSenderId()) {
 				r.leaderState.repNextIndex[i] = min(r.leaderState.repNextIndex[i], oldCommitIndex + 1)
 				r.leaderState.repMatchIndex[i] = min(r.leaderState.repMatchIndex[i], oldCommitIndex)
 			}
 
-			r.leaderState.repNextIndex[r.Id] = len(r.log)
-			r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-
-			firstEntryIndex := int(rpc.GetStartIndex())
-			r.leaderState.repNextIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries())
-			r.leaderState.repMatchIndex[rpc.GetSenderId()] = firstEntryIndex + len(rpc.GetEntries()) - 1
+			r.leaderState.repNextIndex[rpc.GetSenderId()] = int(rpc.GetLogLength())
+			r.leaderState.repMatchIndex[rpc.GetSenderId()] = int(rpc.GetLogLength()) - 1
 		}
 	}
+
+	return shouldReplaceLog
 }
 
 // func (r *Replica) broadcastInfo() {
@@ -902,6 +930,8 @@ func (r *Replica) handleGetCommittedDataReply(rpc *GetCommittedDataReply) {
 					r.log = append(r.log, entry)
 					r.inLog.add(entry)
 				}
+
+				// TODO: update match index here
 			}
 		}
 	}

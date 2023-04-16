@@ -16,6 +16,12 @@ const heartbeatTimeout = 15
 const benOrStartTimeout = 30
 const benOrResendTimeout = 15
 
+func assert(t *testing.T, cond bool, msg string) {
+	if !cond {
+		t.Fatal(msg)
+	}
+}
+
 func TestInitialElection(t *testing.T) {
 	servers := 3
 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, 1e9, 1e9)
@@ -63,12 +69,6 @@ func TestBasicAgree(t *testing.T) {
 	fmt.Println(cfg.checkLogData())
 
 	fmt.Println("... Passed")
-}
-
-func assert(t *testing.T, cond bool, msg string) {
-	if !cond {
-		t.Fatal(msg)
-	}
 }
 
 // func TestPQ(t *testing.T) {

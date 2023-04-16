@@ -112,7 +112,11 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		args := &ReplicateEntriesReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 			ReplyTimestamp: time.Now().UnixNano(), StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
-			Success: True, NewRequestedIndex: rpc.GetStartIndex() + int32(len(rpc.Entries)),
+			Success: True, NewRequestedIndex: rpc.LogLength,
+		}
+
+		if rpc.LogLength != rpc.GetStartIndex() + int32(len(rpc.Entries)) {
+			log.Fatal("log length and start index + entries length do not match for replica", r.Id, rpc.LogLength, rpc.GetStartIndex(), int32(len(rpc.Entries)))
 		}
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
@@ -132,7 +136,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 // ISSUE: Replica 4 is the leader, and commits up to idx 100. It updates its commit index to 100, but the other replicas don't before replica 4 is disconnected.
 // Now, replica 2 is elected leader, and adds a bunch of entries to its log. It updates its commit index to 110, but the other replicas don't before replica 2 is disconnected.
-// Replica 4 is reelected leader (since it has a higher commitindex), and then tells the other replicas to change entries 100 to 110. This is a problem!!!!
+// Replica 4 is reelected leader (since it has a higher commitindex), and then tells the other replicas to change the entries 100 to 110. This is a problem!!!!
 
 // Potential solution: when you are elected, you only compare logterm and index. You can be the leader with a lower commitIndex.
 // When updating your log, you only replace your log with that from the rpc, if entries up to commitindex are different or if your logterm is lower.
