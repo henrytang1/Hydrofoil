@@ -62,14 +62,14 @@ type ReplicateEntriesReply struct {
     LogTerm                         int32
     LogLength                       int32
 
-    ReplyTimestamp                  int64
-
     StartIndex                      int32 // return entries starting from this index
     Entries				            []Entry
     PQEntries                       []Entry
 
     Success							uint8 // bool
     NewRequestedIndex				int32
+
+    MessageTimestamp                int64
 }
 
 func (t *ReplicateEntriesReply) GetSenderId() int32 { return t.SenderId }
@@ -77,12 +77,12 @@ func (t *ReplicateEntriesReply) GetTerm() int32 { return t.Term }
 func (t *ReplicateEntriesReply) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *ReplicateEntriesReply) GetLogTerm() int32 { return t.LogTerm }
 func (t *ReplicateEntriesReply) GetLogLength() int32 { return t.LogLength }
-func (t *ReplicateEntriesReply) GetReplyTimestamp() int64 { return t.ReplyTimestamp }
 func (t *ReplicateEntriesReply) GetStartIndex() int32 { return t.StartIndex }
 func (t *ReplicateEntriesReply) GetEntries() []Entry { return t.Entries }
 func (t *ReplicateEntriesReply) GetPQEntries() []Entry { return t.PQEntries }
 func (t *ReplicateEntriesReply) GetSuccess() uint8 { return t.Success }
 func (t *ReplicateEntriesReply) GetNewRequestedIndex() int32 { return t.NewRequestedIndex }
+func (t *ReplicateEntriesReply) GetMessageTimestamp() int64 { return t.MessageTimestamp }
 
 type RequestVote struct {
     SenderId	   					int32

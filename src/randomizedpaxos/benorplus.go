@@ -11,6 +11,10 @@ import (
 
 /************************************** Ben Or Braodcast **********************************************/
 func (r *Replica) startBenOrPlus() {
+	if r.leaderState.isLeader {
+		log.Fatal("Should not be starting ben or plus if I am leader")
+	}
+
 	fmt.Println("Replica", r.Id, "hmmm3", "log is", logToString(r.log))
 	r.startNewBenOrPlusIteration(0, make([]Entry, 0), make([]bool, r.N))
 }
@@ -22,7 +26,7 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 	// 	}
 	// }
 
-	fmt.Println("Replica", r.Id, "starting ben or plus for iteration", iteration)
+	fmt.Println("Replica", r.Id, "starting ben or plus for iteration", iteration, "diff is", time.Now().Sub(r.lastHeardFromLeader))
 
 	var broadcastEntry Entry
 	benOrIndex := r.commitIndex + 1
@@ -35,6 +39,10 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 		broadcastEntry = r.pq.peek()
 		broadcastEntry.Index = int32(r.commitIndex)+1
 	} else if iteration == 0 {
+		if r.leaderState.isLeader {
+			log.Fatal("Should not be leader if log and pq are empty")
+		}
+
 		r.sendGetCommittedData()
 		// nothing to run ben-or on right now, wait until timeout again
 		timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
@@ -43,6 +51,7 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 		clearTimer(r.benOrResendTimer)
 		return
 	} else {
+		fmt.Println("Replica log", r.Id, "is", logToString(r.log), "pq is", logToString(r.pq.extractList()))
 		log.Fatal("Ben Or Plus: No entry to broadcast")
 	}
 
@@ -148,26 +157,11 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 	// at this point, r.commitIndex >= int(rpc.GetCommitIndex())
 	if r.commitIndex == int(rpc.GetCommitIndex()) && (r.benOrState.benOrRunning || rpc.GetIteration() > 0) {
 		if r.benOrState.benOrIteration < int(rpc.GetIteration()) {
-			// if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-			// 	if r.leaderState.isLeader {
-			// 		entry := r.benOrState.benOrBroadcastEntry
-			// 		entry.Term = int32(r.term)
-			// 		entry.Index = int32(len(r.log))
-	
-			// 		if !r.inLog.contains(entry) {
-			// 			r.log = append(r.log, entry)
-			// 			r.inLog.add(entry)
-			// 		}
-			// 		r.leaderState.repNextIndex[r.Id] = len(r.log)
-			// 		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-			// 	} else {
-			// 		r.pq.push(r.benOrState.benOrBroadcastEntry)
-			// 	}
-			// }
 			heardServerFromBroadcast := make([]bool, r.N)
 			heardServerFromBroadcast[rpc.GetSenderId()] = true
 			fmt.Println("Replica", r.Id, "hmmm1")
 			r.startNewBenOrPlusIteration(int(rpc.GetIteration()), []Entry{rpc.GetBroadcastEntry()}, heardServerFromBroadcast)
+		
 		} else if r.benOrState.benOrIteration == int(rpc.GetIteration()) && r.benOrState.benOrStage == Broadcasting {
 			heardFromServerBefore := r.benOrState.heardServerFromBroadcast[rpc.GetSenderId()]
 
@@ -203,8 +197,6 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 						
 						biasedCoin: false,
 					}
-
-					fmt.Println("server", r.Id, "is sending a BenOrBroadcastReply to server", rpc.GetSenderId(), "with vote", vote, Vote0, Vote1)
 
 					r.benOrState.benOrConsensusMessages = append(r.benOrState.benOrConsensusMessages, vote)
 					r.benOrState.heardServerFromConsensus[r.Id] = true
@@ -311,27 +303,16 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 		caseStage := r.benOrState.benOrIteration == int(rpc.GetIteration()) && r.benOrState.benOrPhase == int(rpc.GetPhase()) && r.benOrState.benOrStage < rpc.GetStage()
 
 		if caseIteration || casePhase || caseStage {
+			if !r.benOrState.benOrRunning {
+				timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
+				setTimer(r.benOrResendTimer, time.Duration(timeout) * time.Millisecond)
+			}
+
 			var benOrBroadcastEntry Entry
 			var haveMajEntry bool
 			var majEntry Entry
 			var biasedCoin bool	
 			if caseIteration {
-				// if r.benOrState.benOrBroadcastEntry != emptyEntry && !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
-				// 	if r.leaderState.isLeader {
-				// 		entry := r.benOrState.benOrBroadcastEntry
-				// 		entry.Term = int32(r.term)
-				// 		entry.Index = int32(len(r.log))
-		
-				// 		if !r.inLog.contains(entry) {
-				// 			r.log = append(r.log, entry)
-				// 			r.inLog.add(entry)
-				// 		}
-				// 		r.leaderState.repNextIndex[r.Id] = len(r.log)
-				// 		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-				// 	} else {
-				// 		r.pq.push(r.benOrState.benOrBroadcastEntry)
-				// 	}
-				// }
 				benOrBroadcastEntry = emptyEntry
 				haveMajEntry = convertIntegerToBool(rpc.GetHaveMajEntry())
 				majEntry = rpc.GetMajEntry()
@@ -343,7 +324,6 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 				haveMajEntry = r.benOrState.haveMajEntry
 				majEntry = r.benOrState.benOrMajEntry
 
-				benOrBroadcastEntry = r.benOrState.benOrBroadcastEntry
 				if convertIntegerToBool(rpc.GetHaveMajEntry()) {
 					if !haveMajEntry || r.benOrState.benOrMajEntry.Term < rpc.GetMajEntry().Term {
 						majEntry = rpc.GetMajEntry()
@@ -518,24 +498,23 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							
 							r.commitIndex++
 
-							if !r.leaderState.isLeader && time.Now().After(r.lastHeardFromLeader.Add(time.Duration(r.benOrStartTimeout)*time.Millisecond)) {
+							if r.leaderState.isLeader {
+								clearTimer(r.benOrResendTimer)
+
+							} else if time.Since(r.lastHeardFromLeader) > time.Duration(3 * r.benOrStartTimeout)*time.Millisecond {
 								// start ben or immediately again if we haven't recently heard from leader
-								fmt.Println("Replica", r.Id, "starting BenOrPlus immediately after commit")
+								fmt.Println("Replica", r.Id, "starting BenOrPlus immediately after commit, current time: ", time.Now(), "last heard from leader: ", r.lastHeardFromLeader, "timeout: ", r.benOrStartTimeout)
 								r.startBenOrPlus()
+							
+							} else {
+								fmt.Println("Replica", r.Id, "ending BenOrPlus after commit")
 
-								if t, ok := rpc.(*BenOrConsensus); ok {
-									r.sendBenOrReply(rpc.GetSenderId(), int(t.GetCommitIndex()))
-								}
-								return
+								// restart BenOr Timer
+								timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+								setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
+
+								clearTimer(r.benOrResendTimer)
 							}
-
-							fmt.Println("Replica", r.Id, "ending BenOrPlus after commit")
-
-							// restart BenOr Timer
-							timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
-							setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
-
-							clearTimer(r.benOrResendTimer)
 
 						} else {
 							var initialVote uint8
@@ -591,6 +570,14 @@ func (r *Replica) sendBenOrReply(senderId int32, rpcCommitIndex int) {
 		entries = r.log[rpcCommitIndex + 1:]
 	}
 
+	// if r.benOrState.benOrStage == NotRunning {
+	// 	args := &GetCommittedDataReply{
+	// 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+	// 		StartIndex: int32(rpcCommitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
+	// 	}
+	// 	fmt.Println("Replica", r.Id, "sending GetCommittedDataReply to", senderId, "with", len(entries), "entries and", "pq entries: ", len(r.pq.extractList()))
+	// 	r.SendMsg(senderId, r.getCommittedDataReplyRPC, args)
+
 	if r.benOrState.benOrStage == NotRunning || r.benOrState.benOrStage == Broadcasting {
 		args := &BenOrBroadcastReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
@@ -598,7 +585,9 @@ func (r *Replica) sendBenOrReply(senderId int32, rpcCommitIndex int) {
 			StartIndex: int32(rpcCommitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
 		}
 		fmt.Println("replica", r.Id, "sending BenOrBroadcastReply to", senderId, "with", len(entries), "entries and", "pq entries: ", len(r.pq.extractList()))
+		// fmt.Println("replica", r.Id, "sending BenOrBroadcastReply to", senderId, "with log:", logToString(r.log), "pq entries:", logToString(r.pq.extractList()), "broadcast entry:", r.benOrState.benOrBroadcastEntry, "majEntry", r.benOrState.benOrMajEntry)
 		r.SendMsg(senderId, r.benOrBroadcastReplyRPC, args)
+
 	} else if r.benOrState.benOrStage == StageOne || r.benOrState.benOrStage == StageTwo {
 		args := &BenOrConsensusReply{
 			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
@@ -607,6 +596,7 @@ func (r *Replica) sendBenOrReply(senderId int32, rpcCommitIndex int) {
 			StartIndex: int32(rpcCommitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
 		}
 		fmt.Println("replica", r.Id, "sending BenOrConsensusReply to", senderId, "with", len(entries), "entries and", "pq entries: ", len(r.pq.extractList()))
+		// fmt.Println("replica", r.Id, "sending BenOrConsensusReply to", senderId, "with log:", logToString(r.log), "pq entries:", logToString(r.pq.extractList()), "vote:", r.benOrState.benOrVote, "haveMajEntry:", r.benOrState.haveMajEntry, "majEntry:", r.benOrState.benOrMajEntry)
 		r.SendMsg(senderId, r.benOrConsensusReplyRPC, args)
 	}
 }

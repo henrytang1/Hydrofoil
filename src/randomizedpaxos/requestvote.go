@@ -98,7 +98,7 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 			if !r.seenBefore(v) { r.pq.push(v) }
 		}
 
-		fmt.Println("Replica", r.Id, "pq values1", r.pq.extractList())
+		fmt.Println("Replica", r.Id, "pq values1", logToString(r.pq.extractList()))
 	}
 
 	if rpc.VoteGranted == True {
@@ -120,11 +120,11 @@ func (r *Replica) becomeLeader() {
 		isLeader: true,
 		repNextIndex: make([]int, r.N),
 		repMatchIndex: make([]int, r.N),
-		lastReplicaTimestamp: make([]time.Time, r.N),
+		lastMessageTimestamp: make([]time.Time, r.N),
 	}
 
 	for i := 0; i < r.N; i++ {
-		r.leaderState.lastReplicaTimestamp[i] = zeroTime
+		r.leaderState.lastMessageTimestamp[i] = zeroTime
 	}
 
 	r.candidateState = emptyCandidateState

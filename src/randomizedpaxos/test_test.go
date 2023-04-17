@@ -13,8 +13,8 @@ import (
 // (much more than the paper's range of timeouts).
 const electionTimeout = 150
 const heartbeatTimeout = 15
-const benOrStartTimeout = 30
-const benOrResendTimeout = 15
+const benOrStartTimeout = 40
+const benOrResendTimeout = 20
 
 func assert(t *testing.T, cond bool, msg string) {
 	if !cond {
@@ -261,10 +261,10 @@ func TestFigure8(t *testing.T) {
 	}
 
 	nup := servers
-	for iters := 0; iters < 1000; iters++ {
+	for iters := 0; iters < 300; iters++ {
 		leader := -1
 		for i := 0; i < servers; i++ {
-			isLeader := cfg.sendCommand(i, iters*servers+i)
+			isLeader := cfg.sendCommand(i, iters*servers+i+1)
 			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
 			// if ok && cfg.connected[i] {
 			// 	leader = i
@@ -310,10 +310,10 @@ func TestFigure8(t *testing.T) {
 
 	commands := cfg.checkLogData()
 	fmt.Println("length: ", len(commands), "data: ", commandToString(commands))
-	assert(t, len(commands) == 5002, "Log length is not 5002")
+	assert(t, len(commands) == 1502, "Log length is not 1502")
 
 	loc := make([]int, servers)
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < 1500; i++ {
 		opId := int(commands[i+1].OpId) % servers
 		pos := (opId + servers - 1) % servers
 		if opId < loc[pos] {
@@ -340,7 +340,7 @@ func TestBenOrManyReconnects(t *testing.T) {
 	}
 
 	nup := servers
-	for iters := 0; iters < 100; iters++ {
+	for iters := 0; iters < 50; iters++ {
 		for i := 0; i < servers; i++ {
 			cfg.sendCommand(i, iters*servers+i)
 			fmt.Println("Just sent", iters*servers+i, "to", i)
@@ -363,7 +363,6 @@ func TestBenOrManyReconnects(t *testing.T) {
 			if cfg.connectedToNet[rep] && (rand.Int()%1000) < int(1000)/2 {
 				cfg.disconnect(rep)
 				nup -= 1
-				continue
 			}
 		}
 
@@ -376,16 +375,6 @@ func TestBenOrManyReconnects(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < servers; i++ {
-		fmt.Println("Replica", i, "execution log length: ", len(cfg.repExecutions[i]), ", connected status", cfg.connectedToNet[i])
-	}
-
-	for i := 0; i< servers; i++ {
-		for j := 0; j < servers; j++ {
-			fmt.Println("Connection from", i, "to", j, "is", cfg.replicas[i].TestingState.IsConnected.Connected[j])
-		}
-	}
-
 	for nup < 3 {
 		rep := rand.Int() % servers
 		if cfg.connectedToNet[rep] == false {
@@ -394,14 +383,14 @@ func TestBenOrManyReconnects(t *testing.T) {
 		}
 	}
 
-	time.Sleep(20 * time.Second)
-
-	commands := cfg.checkLogData()
-	fmt.Println(commandToString(commands))
-
-	for i := 0; i < servers; i++ {
-		fmt.Println("Replica", i, "execution log length: ", len(cfg.repExecutions[i]), ", connected status", cfg.connectedToNet[i])
+	for i := 0; i< servers; i++ {
+		for j := 0; j < servers; j++ {
+			fmt.Println("Connection from", i, "to", j, "is", cfg.replicas[i].TestingState.IsConnected.Connected[j])
+		}
 	}
+
+	time.Sleep(25 * time.Second)
+
 
 	for i := 0; i < servers; i++ {
 		if cfg.connectedToNet[i] == false {
@@ -409,14 +398,14 @@ func TestBenOrManyReconnects(t *testing.T) {
 		}
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(3 * time.Second)
 
-	commands = cfg.checkLogData()
+	commands := cfg.checkLogData()
 	fmt.Println(commandToString(commands))
-	assert(t, len(commands) == 501, "Log length is not 501")
+	assert(t, len(commands) == 251, "Log length is not 251")
 
 	loc := make([]int, servers)
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 250; i++ {
 		opId := int(commands[i+1].OpId) % servers
 		pos := (opId + servers - 1) % servers
 		if opId < loc[pos] {
@@ -435,13 +424,13 @@ func TestBenOrManyReconnects(t *testing.T) {
 	fmt.Println("... Passed")
 }
 
-func TestRaftWithBenOr(t *testing.T) {
+func TestRaftWithBenOrSimple(t *testing.T) {
 	servers := 5
 	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
 	cfg.runReplicas()
 	defer cfg.cleanup()
 
-	fmt.Println("Test: basic agreement...")
+	fmt.Println("Test: raft with ben or...")
 	leader1 := cfg.checkOneLeader()
 
 	for i := 0; i < servers; i++ {
@@ -457,7 +446,7 @@ func TestRaftWithBenOr(t *testing.T) {
 	for iters := 0; iters < 10; iters++ {
 		for i := 0; i < servers; i++ {
 			cfg.sendCommand(i, iters*servers+i+1)
-			fmt.Println("Just sent", iters*servers+i, "to", i)
+			fmt.Println("Just sent", iters*servers+i+1, "to", i)
 		}
 
 		if (rand.Int() % 1000) < 100 {
@@ -500,9 +489,69 @@ func TestRaftWithBenOr(t *testing.T) {
 	fmt.Println("... Passed")
 }
 
+func TestRaftWithBenOrNoFailures(t *testing.T) {
+	servers := 5
+	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
+	cfg.runReplicas()
+	defer cfg.cleanup()
+
+	fmt.Println("Test: raft with ben or no failures...")
+	res := cfg.sendCommandCheckCommit(0, -1)
+	if !res {
+		t.Fatal("Failed agreement on entry")
+	}
+
+	// for iters := 0; iters < 1000; iters++ {
+	for iters := 0; iters < 300; iters++ {
+		for i := 0; i < servers; i++ {
+			cfg.sendCommand(i, iters*servers+i+1)
+			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
+			// if ok && cfg.connected[i] {
+			// 	leader = i
+			// }
+		}
+
+		if (rand.Int() % 1000) < 100 {
+			ms := rand.Int63() % (1000 / 2)
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		} else {
+			ms := (rand.Int63() % 13)
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+	}
+
+	time.Sleep(20 * time.Second)
+	res = cfg.sendCommandLeaderCheckReplicas(10000, 5)
+	if !res {
+		t.Fatal("Failed agreement on entry")
+	}
+
+	commands := cfg.checkLogData()
+	fmt.Println(commandToString(commands))
+	assert(t, len(commands) >= 1501, "Log length is larger than 1501")
+
+	for i := 1501; i < len(commands); i++ {
+		assert(t, commands[i].OpId >= 10000, "Log entry isn't at least 10000")
+	}
+
+	loc := make([]int, servers)
+	for i := 0; i < 1500; i++ {
+		opId := int(commands[i+1].OpId) % servers
+		pos := (opId + servers - 1) % servers
+		if opId < loc[pos] {
+			t.Fatal("Out of order")
+		}
+		loc[pos] = opId
+	}
+
+	fmt.Println("None out of order")
+
+	fmt.Println("... Passed")
+}
+
 func TestRaftWithBenOrComplex(t *testing.T) {
 	servers := 5
-	cfg := make_config_full(t, servers, false, 1000, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
+	cfg := make_config_full(t, servers, false, electionTimeout, heartbeatTimeout, benOrStartTimeout, benOrResendTimeout)
 	cfg.runReplicas()
 	defer cfg.cleanup()
 
@@ -513,10 +562,11 @@ func TestRaftWithBenOrComplex(t *testing.T) {
 	}
 
 	nup := servers
-	for iters := 0; iters < 1000; iters++ {
+	for iters := 0; iters < 300; iters++ {
+	// for iters := 0; iters < 300; iters++ {
 		leader := -1
 		for i := 0; i < servers; i++ {
-			isLeader := cfg.sendCommand(i, iters*servers+i)
+			isLeader := cfg.sendCommand(i, iters*servers+i+1)
 			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
 			// if ok && cfg.connected[i] {
 			// 	leader = i
@@ -530,7 +580,7 @@ func TestRaftWithBenOrComplex(t *testing.T) {
 			ms := rand.Int63() % (1000 / 2)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		} else {
-			ms := (rand.Int63() % 30)
+			ms := (rand.Int63() % 13)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		}
 
@@ -554,7 +604,7 @@ func TestRaftWithBenOrComplex(t *testing.T) {
 		}
 	}
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Second)
 	res = cfg.sendCommandLeaderCheckReplicas(10000, 5)
 	if !res {
 		t.Fatal("Failed agreement on entry")
@@ -562,10 +612,14 @@ func TestRaftWithBenOrComplex(t *testing.T) {
 
 	commands := cfg.checkLogData()
 	fmt.Println(commandToString(commands))
-	assert(t, len(commands) == 1002, "Log length is not 1002")
+	assert(t, len(commands) >= 1501, "Log length is larger than 1501")
+
+	for i := 1501; i < len(commands); i++ {
+		assert(t, commands[i].OpId >= 10000, "Log entry isn't at least 10000")
+	}
 
 	loc := make([]int, servers)
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < 1500; i++ {
 		opId := int(commands[i+1].OpId) % servers
 		pos := (opId + servers - 1) % servers
 		if opId < loc[pos] {

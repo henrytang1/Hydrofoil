@@ -170,9 +170,9 @@ func (cfg *config) listen() {
 	for data := range cfg.responseChan {
 		replica := data.ServerId
 		cmd := data.Command
-		fmt.Println("Got execution", cmd.OpId, "from replica", replica, "before append")
+		// fmt.Println("Got execution", cmd.OpId, "from replica", replica, "before append")
 		cfg.repExecutions[replica] = append(cfg.repExecutions[replica], cmd)
-		fmt.Println("Got execution", cmd.OpId, "from replica", replica, "after append")
+		// fmt.Println("Got execution", cmd.OpId, "from replica", replica, "after append")
 		// idx := len(cfg.repExecutions[replica]) - 1
 
 		// for i := 0; i < cfg.n; i++ {
@@ -255,6 +255,7 @@ func (cfg *config) checkLogData() []state.Command {
 }
 
 func (cfg *config) sendCommand(rep int, cmdId int) bool {
+	fmt.Println(cmdId)
 	cmd := state.Command{ClientId: CLIENTID, OpId: int32(cmdId), Op: state.PUT, K: 0, V: 0}
 	fmt.Println("SEND COMMAND: ", cmd.OpId, " TO ", rep, "START")
 	cfg.requestChan[rep] <- cmd
@@ -343,7 +344,7 @@ func (cfg *config) sendCommandLeaderCheckReplicas(cmdId int, expectedReplicas in
 		}
 	}
 	for j := 0; j < cfg.n; j++ {
-		fmt.Println("Replica ", j, " log: ", cfg.repExecutions[j])
+		fmt.Println("Replica ", j, " log: ", commandToString(cfg.repExecutions[j]))
 	}
 	return false
 }

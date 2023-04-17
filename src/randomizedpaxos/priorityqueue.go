@@ -3,6 +3,7 @@ package randomizedpaxos
 
 import (
 	"container/heap"
+	"log"
 	"sort"
 	"state"
 )
@@ -86,6 +87,13 @@ func (extPQ *ExtendedPriorityQueue) pop() Entry {
 }
 
 func (extPQ *ExtendedPriorityQueue) peek() Entry {
+	asdf := extPQ.pop()
+	extPQ.push(asdf)
+
+	if asdf != extPQ.pq[0].entry {
+		log.Fatal("asdf != extPQ.pq[0].entry")
+	}
+	
 	return extPQ.pq[0].entry
 }
 

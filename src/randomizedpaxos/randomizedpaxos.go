@@ -114,7 +114,7 @@ type LeaderState struct {
 	isLeader			bool
 	repNextIndex			[]int // next index to send to each replica
 	repMatchIndex			[]int // index of highest known replicated entry on replica
-	lastReplicaTimestamp		[]time.Time // time we last heard a replicateentriesreply from each replica
+	lastMessageTimestamp		[]time.Time // time we last heard a replicateentriesreply from each replica
 }
 
 type CandidateState struct {
@@ -275,7 +275,7 @@ var emptyLeaderState = LeaderState{
 	isLeader: false,
 	repNextIndex: make([]int, 0), // replica next index
 	repMatchIndex: make([]int, 0),
-	lastReplicaTimestamp: make([]time.Time, 0),
+	lastMessageTimestamp: make([]time.Time, 0),
 }
 
 var emptyCandidateState = CandidateState{
@@ -422,9 +422,9 @@ func (r *Replica) executeCommand(i int) {
 			}
 		}
 	} else {
-		fmt.Println("Replica", r.Id, "executing command", i, "START")
+		fmt.Println("Replica", r.Id, "executing command", i, "with opid", r.log[i].Data.OpId, "START")
 		r.TestingState.ResponseChan <- genericsmr.RepCommand{int(r.Id), r.log[i].Data}
-		fmt.Println("Replica", r.Id, "executing command", i, "END")
+		fmt.Println("Replica", r.Id, "executing command", i, "with opid", r.log[i].Data.OpId, "END")
 	}
 }
 
@@ -456,7 +456,16 @@ func (r *Replica) run() {
 			matchIndices := append(make([]int, 0, r.N), r.leaderState.repMatchIndex...)
 			sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
 			dlog.Println("Replica", r.Id, "matchIndices", matchIndices)
-			r.commitIndex = max(r.commitIndex, matchIndices[r.N/2])
+			if r.commitIndex < matchIndices[r.N/2] {
+				fmt.Println("Leader", r.Id, "committing using RAFT from", r.commitIndex + 1, "to", matchIndices[r.N/2])
+				r.commitIndex = matchIndices[r.N/2]
+				r.benOrState = emptyBenOrState
+				// timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+				// setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
+				clearTimer(r.benOrResendTimer)
+			}
+
+			
 		}
 
 		if r.commitIndex > r.lastApplied {
@@ -748,8 +757,11 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 		// 	r.pq.push(r.benOrState.benOrBroadcastEntry)
 		// }
 		r.benOrState = emptyBenOrState
-		timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
-		setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
+
+		if !r.leaderState.isLeader {
+			timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
+			setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
+		}
 
 		clearTimer(r.benOrResendTimer)
 	}
@@ -867,7 +879,8 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 func (r *Replica) sendGetCommittedData() {
 	fmt.Println("Replica", r.Id, "sending get committed data", r.commitIndex, len(r.log))
 	args := &GetCommittedData{
-		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log))			}
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+	}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
 			r.SendMsg(int32(i), r.getCommittedDataRPC, args)
@@ -892,7 +905,7 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
 		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 	}
-	fmt.Println("Replica", r.Id, "sending get committed data reply", r.commitIndex, len(r.log))
+	fmt.Println("Replica", r.Id, "sending get committed data reply to", rpc.SenderId, "with", r.commitIndex, len(r.log))
 	r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
 }
 
