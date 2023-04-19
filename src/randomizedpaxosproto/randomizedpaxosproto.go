@@ -19,7 +19,7 @@ const (
 // if Term == -1, then this entry is running BenOr or has been committed using BenOr+
 type Entry struct {
     Data 	        state.Command
-    SenderId        int32
+    ServerId        int32
     Term 	        int32
     Index	        int32
     Timestamp       int64
@@ -33,7 +33,7 @@ type ReplicateEntries struct {
     LogLength                       int32
 
     PrevLogIndex					int32
-    PrevLogSenderId                 int32
+    PrevLogServerId                 int32
     PrevLogTimestamp                int64
 
     Entries							[]Entry
@@ -50,7 +50,7 @@ func (t *ReplicateEntries) GetCommitIndex() int32 { return t.CommitIndex }
 func (t *ReplicateEntries) GetLogTerm() int32 { return t.LogTerm }
 func (t *ReplicateEntries) GetLogLength() int32 { return t.LogLength }
 func (t *ReplicateEntries) GetPrevLogIndex() int32 { return t.PrevLogIndex }
-func (t *ReplicateEntries) GetPrevLogSenderId() int32 { return t.PrevLogSenderId }
+func (t *ReplicateEntries) GetPrevLogServerId() int32 { return t.PrevLogServerId }
 func (t *ReplicateEntries) GetPrevLogTimestamp() int64 { return t.PrevLogTimestamp }
 func (t *ReplicateEntries) GetStartIndex() int32 { return t.PrevLogIndex + 1 }
 func (t *ReplicateEntries) GetEntries() []Entry { return t.Entries }
@@ -66,10 +66,9 @@ type ReplicateEntriesReply struct {
     Entries				            []Entry
     PQEntries                       []Entry
 
-    Success							uint8 // bool
     NewRequestedIndex				int32
 
-    MessageTimestamp                int64
+    MsgTimestamp                    int64
 }
 
 func (t *ReplicateEntriesReply) GetSenderId() int32 { return t.SenderId }
@@ -80,9 +79,8 @@ func (t *ReplicateEntriesReply) GetLogLength() int32 { return t.LogLength }
 func (t *ReplicateEntriesReply) GetStartIndex() int32 { return t.StartIndex }
 func (t *ReplicateEntriesReply) GetEntries() []Entry { return t.Entries }
 func (t *ReplicateEntriesReply) GetPQEntries() []Entry { return t.PQEntries }
-func (t *ReplicateEntriesReply) GetSuccess() uint8 { return t.Success }
 func (t *ReplicateEntriesReply) GetNewRequestedIndex() int32 { return t.NewRequestedIndex }
-func (t *ReplicateEntriesReply) GetMessageTimestamp() int64 { return t.MessageTimestamp }
+func (t *ReplicateEntriesReply) GetMsgTimestamp() int64 { return t.MsgTimestamp }
 
 type RequestVote struct {
     SenderId	   					int32

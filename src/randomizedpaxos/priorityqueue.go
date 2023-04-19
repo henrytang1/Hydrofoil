@@ -39,7 +39,7 @@ func (extPQ *ExtendedPriorityQueue) push(entry Entry) {
 	}
 
 	req := UniqueCommand {
-		senderId: entry.SenderId,
+		senderId: entry.ServerId,
 		time: entry.Timestamp,
 	}
 	
@@ -52,7 +52,7 @@ func (extPQ *ExtendedPriorityQueue) push(entry Entry) {
 
 func (extPQ *ExtendedPriorityQueue) contains(entry Entry) bool {
 	req := UniqueCommand {
-		senderId: entry.SenderId,
+		senderId: entry.ServerId,
 		time: entry.Timestamp,
 	}
 
@@ -64,7 +64,7 @@ func (extPQ *ExtendedPriorityQueue) contains(entry Entry) bool {
 
 func (extPQ *ExtendedPriorityQueue) remove(entry Entry) {
 	req := UniqueCommand {
-		senderId: entry.SenderId,
+		senderId: entry.ServerId,
 		time: entry.Timestamp,
 	}
 
@@ -78,7 +78,7 @@ func (extPQ *ExtendedPriorityQueue) pop() Entry {
 	item := heap.Pop(&extPQ.pq).(*Item)
 
 	req := UniqueCommand {
-		senderId: item.entry.SenderId,
+		senderId: item.entry.ServerId,
 		time: item.entry.Timestamp,
 	}
 
@@ -141,7 +141,7 @@ func cmpEntry(a, b Entry) bool {
 	if a.Timestamp != b.Timestamp {
 		return a.Timestamp < b.Timestamp
 	}
-	return a.SenderId < b.SenderId
+	return a.ServerId < b.ServerId
 }
 
 func cmpItem(a, b *Item) bool {
@@ -184,7 +184,7 @@ func (pq *PriorityQueue) update(item *Item, entry Entry, request state.Command) 
 }
 
 func equalEntry(a, b Entry) bool {
-	return a.SenderId == b.SenderId && a.Timestamp == b.Timestamp
+	return a.ServerId == b.ServerId && a.Timestamp == b.Timestamp
 }
 
 // // This example creates a PriorityQueue with some items, adds and manipulates an item,

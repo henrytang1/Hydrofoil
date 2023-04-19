@@ -114,7 +114,7 @@ type LeaderState struct {
 	isLeader			bool
 	repNextIndex			[]int // next index to send to each replica
 	repMatchIndex			[]int // index of highest known replicated entry on replica
-	lastMessageTimestamp		[]time.Time // time we last heard a replicateentriesreply from each replica
+	lastMsgTimestamp		[]time.Time // time we last heard a replicateentriesreply from each replica
 }
 
 type CandidateState struct {
@@ -131,14 +131,14 @@ type BenOrState struct {
 	benOrStage			uint8
 
 	benOrBroadcastEntry 		Entry // entry that you initially broadcast this iteration
-	benOrBroadcastMessages		[]Entry
+	benOrBroadcastMsgs		[]Entry
 	heardServerFromBroadcast	[]bool
 
 	haveMajEntry			bool
 	benOrMajEntry			Entry // majority entry received in BenOrBroadcast. If none, then this is emptyEntry.
 
 	benOrVote			uint8
-	benOrConsensusMessages		[]uint8
+	benOrConsensusMsgs		[]uint8
 	heardServerFromConsensus	[]bool
 	
 	biasedCoin			bool
@@ -175,7 +175,7 @@ type Replica struct {
 	inLog				Set
 
 	commitIndex			int // index of highest log entry known to be committed
-	logTerm				int // highest entry previously seen in log (not precisely, but will do for now)
+	leaderTerm			int // highest term seen from a leader
 	lastApplied			int // index of last log entry applied to state machine
 	lastHeardFromLeader		time.Time // time we last heard from the leader
 
@@ -265,7 +265,7 @@ func (r *Replica) registerClient(clientId uint32, writer *bufio.Writer) uint8 {
 
 var emptyEntry = Entry{
 	Data: state.Command{},
-	SenderId: -1,
+	ServerId: -1,
 	Term: -1,
 	Index: -1,
 	Timestamp: -1,
@@ -275,7 +275,7 @@ var emptyLeaderState = LeaderState{
 	isLeader: false,
 	repNextIndex: make([]int, 0), // replica next index
 	repMatchIndex: make([]int, 0),
-	lastMessageTimestamp: make([]time.Time, 0),
+	lastMsgTimestamp: make([]time.Time, 0),
 }
 
 var emptyCandidateState = CandidateState{
@@ -291,14 +291,14 @@ var emptyBenOrState = BenOrState{
 	benOrStage: NotRunning,
 
 	benOrBroadcastEntry: emptyEntry,
-	benOrBroadcastMessages: make([]Entry, 0),
+	benOrBroadcastMsgs: make([]Entry, 0),
 	heardServerFromBroadcast: make([]bool, 0),
 
 	haveMajEntry: false,
 	benOrMajEntry: emptyEntry,
 
 	benOrVote: VoteUninitialized,
-	benOrConsensusMessages: make([]uint8, 0),
+	benOrConsensusMsgs: make([]uint8, 0),
 	heardServerFromConsensus: make([]bool, 0),
 	
 	biasedCoin: false,
@@ -336,7 +336,7 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 		inLog: newSet(),
 
 		commitIndex: 0,
-		logTerm: 0,
+		leaderTerm: 0,
 		lastApplied: 0, // 0 entry is already applied (it's an empty entry)
 		lastHeardFromLeader: time.Now(),
 
@@ -405,14 +405,14 @@ func newReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 // }
 
 func (r *Replica) getState() (bool, int, int, int) {
-	return r.leaderState.isLeader, r.term, r.logTerm, r.commitIndex
+	return r.leaderState.isLeader, r.term, r.leaderTerm, r.commitIndex
 }
 
 func (r *Replica) executeCommand(i int) {
 	if r.TestingState.IsProduction {
 		if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
 			val := r.log[i].Data.Execute(r.State)
-			if (r.log[i].SenderId == r.Id && !r.inLog.isCommitted(r.log[i])) { 
+			if (r.log[i].ServerId == r.Id && !r.inLog.isCommitted(r.log[i])) { 
 				propreply := &genericsmrproto.ProposeReplyTS{
 					OK: True,
 					CommandId: r.log[i].Data.OpId,
@@ -650,7 +650,7 @@ func (r *Replica) shutdown() {
 func (r *Replica) handleProposeCommand(cmd state.Command) {
 	newLogEntry := Entry{
 		Data: cmd,
-		SenderId: r.Id,
+		ServerId: r.Id,
 		Term: -1,
 		Index: -1,
 		Timestamp: time.Now().UnixNano(),
@@ -701,7 +701,7 @@ func (r *Replica) shouldLogBeReplaced(rpc UpdateMsg, logStartIdx int) (bool, int
 		if i >= len(r.log) || !entryEqual(r.log[i], rpc.GetEntries()[i - firstEntryIndex]) { return true, i }
 	}
 
-	if r.logTerm > int(rpc.GetLogTerm()) || (r.logTerm == int(rpc.GetLogTerm()) && len(r.log) >= int(rpc.GetLogLength())) {
+	if r.leaderTerm > int(rpc.GetLogTerm()) || (r.leaderTerm == int(rpc.GetLogTerm()) && len(r.log) >= int(rpc.GetLogLength())) {
 		return false, -1
 	}
 
@@ -750,7 +750,7 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 	}
 	
 	r.commitIndex = int(rpc.GetCommitIndex())
-	r.logTerm = max(r.logTerm, int(rpc.GetLogTerm()))
+	r.leaderTerm = max(r.leaderTerm, int(rpc.GetLogTerm()))
 	if r.commitIndex > oldCommitIndex {
 		fmt.Println("Replica", r.Id, "committing to", r.commitIndex, "from", oldCommitIndex)
 		// if !r.seenBefore(r.benOrState.benOrBroadcastEntry) {
@@ -879,7 +879,7 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 func (r *Replica) sendGetCommittedData() {
 	fmt.Println("Replica", r.Id, "sending get committed data", r.commitIndex, len(r.log))
 	args := &GetCommittedData{
-		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),
 	}
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
@@ -902,7 +902,7 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 	}
 
 	args := &GetCommittedDataReply{
-		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),
 		StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 	}
 	fmt.Println("Replica", r.Id, "sending get committed data reply to", rpc.SenderId, "with", r.commitIndex, len(r.log))

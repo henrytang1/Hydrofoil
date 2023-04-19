@@ -632,3 +632,103 @@ func TestRaftWithBenOrComplex(t *testing.T) {
 
 	fmt.Println("... Passed")
 }
+
+
+
+
+// func TestBenOrSlowMessages(t *testing.T) {
+// 	servers := 5
+// 	cfg := make_config_full(t, servers, false, 1e9, 1e9, benOrStartTimeout, 10)
+// 	cfg.runReplicas()
+// 	defer cfg.cleanup()
+
+// 	fmt.Println("Test: ben or many reconnects...")
+// 	// res := cfg.sendCommandCheckCommit(0, -1)
+// 	// if !res {
+// 	// 	t.Fatal("Failed agreement on entry")
+// 	// }
+
+// 	nup := servers
+// 	for iters := 0; iters < 10; iters++ {
+// 		for i := 0; i < servers; i++ {
+// 			cfg.sendCommand(i, iters*servers+i)
+// 			fmt.Println("Just sent", iters*servers+i, "to", i)
+// 			// _, _, ok := cfg.rafts[i].Start(rand.Int() % 10000)
+// 			// if ok && cfg.connected[i] {
+// 			// 	leader = i
+// 			// }
+// 		}
+
+// 		if (rand.Int() % 1000) < 100 {
+// 			ms := rand.Int63() % (1000 / 2)
+// 			time.Sleep(time.Duration(ms) * time.Millisecond)
+// 		} else {
+// 			ms := (rand.Int63() % 30)
+// 			time.Sleep(time.Duration(ms) * time.Millisecond)
+// 		}
+
+// 		if nup > 2 {
+// 			rep := rand.Int() % servers
+// 			if cfg.connectedToNet[rep] && (rand.Int()%1000) < int(1000)/2 {
+// 				cfg.disconnect(rep)
+// 				nup -= 1
+// 			}
+// 		}
+
+// 		if nup < 3 {
+// 			rep := rand.Int() % servers
+// 			if cfg.connectedToNet[rep] == false {
+// 				cfg.connect(rep)
+// 				nup += 1
+// 			}
+// 		}
+// 	}
+
+// 	for nup < 3 {
+// 		rep := rand.Int() % servers
+// 		if cfg.connectedToNet[rep] == false {
+// 			cfg.connect(rep)
+// 			nup += 1
+// 		}
+// 	}
+
+// 	for i := 0; i< servers; i++ {
+// 		for j := 0; j < servers; j++ {
+// 			fmt.Println("Connection from", i, "to", j, "is", cfg.replicas[i].TestingState.IsConnected.Connected[j])
+// 		}
+// 	}
+
+// 	time.Sleep(25 * time.Second)
+
+
+// 	for i := 0; i < servers; i++ {
+// 		if cfg.connectedToNet[i] == false {
+// 			cfg.connect(i)
+// 		}
+// 	}
+
+// 	time.Sleep(3 * time.Second)
+
+// 	commands := cfg.checkLogData()
+// 	fmt.Println(commandToString(commands))
+// 	assert(t, len(commands) == 50, "Log length is not 50")
+
+// 	loc := make([]int, servers)
+// 	for i := 0; i < 50; i++ {
+// 		opId := int(commands[i].OpId) % servers
+// 		pos := (opId + servers - 1) % servers
+// 		if opId < loc[pos] {
+// 			t.Fatal("Out of order")
+// 		}
+// 		loc[pos] = opId
+// 	}
+
+// 	fmt.Println("None out of order")
+
+// 	// res, _ = cfg.sendCommandCheckResults(0, 1000, 5)
+// 	// if !res {
+// 	// 	t.Fatal("Failed agreement on entry")
+// 	// }
+
+// 	fmt.Println("... Passed")
+// }

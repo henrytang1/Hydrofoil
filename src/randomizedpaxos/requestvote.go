@@ -24,7 +24,7 @@ func (r *Replica) startElection() {
 	r.votedFor = int(r.Id)
 
 	args := &RequestVote{
-		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),
 	}
 
 	fmt.Println("Replica", r.Id, "sending to all RequestVote", "AAAA")
@@ -45,9 +45,9 @@ func (r *Replica) handleRequestVote(rpc *RequestVote) {
 		entries = r.log[rpc.CommitIndex + 1:]
 	}
 
-	if r.term > int(rpc.Term) || r.logTerm > int(rpc.GetLogTerm()) || (r.logTerm == int(rpc.GetLogTerm()) && len(r.log) > int(rpc.LogLength)) || r.votedFor != -1 {
+	if r.term > int(rpc.Term) || r.leaderTerm > int(rpc.GetLogTerm()) || (r.leaderTerm == int(rpc.GetLogTerm()) && len(r.log) > int(rpc.LogLength)) || r.votedFor != -1 {
 		args := &RequestVoteReply{
-			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),
 			VoteGranted: False, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 		}
 		fmt.Println("Replica", r.Id, "sending to", rpc.SenderId, "RequestVoteReply", "BBBB")
@@ -56,7 +56,7 @@ func (r *Replica) handleRequestVote(rpc *RequestVote) {
 	} else {
 		r.votedFor = int(rpc.SenderId)
 		args := &RequestVoteReply{
-			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.logTerm), LogLength: int32(len(r.log)),
+			SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LogTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),
 			VoteGranted: True, StartIndex: rpc.CommitIndex + 1, Entries: entries, PQEntries: r.pq.extractList(),
 		}
 		fmt.Println("Replica", r.Id, "sending to", rpc.SenderId, "RequestVoteReply", "CCCC")
@@ -86,9 +86,9 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 	if r.isLogMoreUpToDate(rpc) == LessUpToDate {
 		r.updateLogFromRPC(rpc)
 
-		// stop being a candidate
-		r.candidateState = emptyCandidateState
-		return
+		// // stop being a candidate
+		// r.candidateState = emptyCandidateState
+		// return
 	} else {
 		for _, v := range(rpc.Entries) {
 			if !r.seenBefore(v) { r.pq.push(v) }
@@ -120,15 +120,15 @@ func (r *Replica) becomeLeader() {
 		isLeader: true,
 		repNextIndex: make([]int, r.N),
 		repMatchIndex: make([]int, r.N),
-		lastMessageTimestamp: make([]time.Time, r.N),
+		lastMsgTimestamp: make([]time.Time, r.N),
 	}
 
 	for i := 0; i < r.N; i++ {
-		r.leaderState.lastMessageTimestamp[i] = zeroTime
+		r.leaderState.lastMsgTimestamp[i] = zeroTime
 	}
 
 	r.candidateState = emptyCandidateState
-	r.logTerm = r.term
+	r.leaderTerm = r.term
 
 	for !r.pq.isEmpty() {
 		entry := r.pq.pop()

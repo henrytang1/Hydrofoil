@@ -34,7 +34,7 @@ func (s *Set) dec(item UniqueCommand) {
 }
 
 func (s *Set) add(entry Entry) {
-	item := UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp}
+	item := UniqueCommand{senderId: entry.ServerId, time: entry.Timestamp}
 	status, found := s.m[item]
 	if !found {
 		s.m[item] = ClientReqStatus{1, false, false}
@@ -45,7 +45,7 @@ func (s *Set) add(entry Entry) {
 }
 
 func (s *Set) remove(entry Entry) {
-	item := UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp}
+	item := UniqueCommand{senderId: entry.ServerId, time: entry.Timestamp}
 	if item.senderId == -1 {
 		return
 	}
@@ -53,7 +53,7 @@ func (s *Set) remove(entry Entry) {
 }
 
 func (s *Set) contains(entry Entry) bool {
-	item := UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp}
+	item := UniqueCommand{senderId: entry.ServerId, time: entry.Timestamp}
 	status, found := s.m[item]
 	if !found {
 		return false
@@ -62,7 +62,7 @@ func (s *Set) contains(entry Entry) bool {
 }
 
 func (s *Set) commit(entry Entry) {
-	item := UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp}
+	item := UniqueCommand{senderId: entry.ServerId, time: entry.Timestamp}
 	status, found := s.m[item]
 	if !found {
 		s.m[item] = ClientReqStatus{1, true, false}
@@ -73,7 +73,7 @@ func (s *Set) commit(entry Entry) {
 }
 
 func (s *Set) execute(entry Entry) {
-	item := UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp}
+	item := UniqueCommand{senderId: entry.ServerId, time: entry.Timestamp}
 	status, found := s.m[item]
 	if !found {
 		s.m[item] = ClientReqStatus{1, true, true}
@@ -84,7 +84,7 @@ func (s *Set) execute(entry Entry) {
 }
 
 func (s *Set) isCommitted(entry Entry) bool {
-	item := UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp}
+	item := UniqueCommand{senderId: entry.ServerId, time: entry.Timestamp}
 	if _, ok := s.m[item]; !ok {
 		return false
 	}
@@ -205,8 +205,8 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 	if r.commitIndex != int(rpc.GetCommitIndex()) {
 		return convertBoolToOrder(r.commitIndex > int(rpc.GetCommitIndex()))
 	}
-	if r.logTerm != int(rpc.GetLogTerm()) {
-		return convertBoolToOrder(r.logTerm > int(rpc.GetLogTerm()))
+	if r.leaderTerm != int(rpc.GetLogTerm()) {
+		return convertBoolToOrder(r.leaderTerm > int(rpc.GetLogTerm()))
 	}
 	if len(r.log) != int(rpc.GetLogLength()) {
 		return convertBoolToOrder(len(r.log) > int(rpc.GetLogLength()))
@@ -278,7 +278,7 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 // }
 
 func entryEqual (e1 Entry, e2 Entry) bool {
-	return e1.SenderId == e2.SenderId && e1.Timestamp == e2.Timestamp
+	return e1.ServerId == e2.ServerId && e1.Timestamp == e2.Timestamp
 }
 
 func logToString (log []Entry) string {
