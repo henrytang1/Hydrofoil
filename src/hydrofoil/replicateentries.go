@@ -1,4 +1,4 @@
-package randomizedpaxos
+package hydrofoil
 
 import (
 	"dlog"
@@ -95,7 +95,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	dlog.Println("Replica", r.Id, "is accepting entries from", rpc.SenderId, "before log", logToString(r.log))
 
 	var potentialEntries []Entry
-	shouldReplaceLog, startReplacementIdx := r.shouldLogBeReplaced(rpc, int(rpc.PrevLogIndex) + 1)
+	shouldReplaceLog, startReplacementIdx := r.shouldLogBeReplaced(rpc, max(r.commitIndex, int(rpc.PrevLogIndex)) + 1)
 	if shouldReplaceLog {
 		potentialEntries = r.replaceExistingLog(rpc, startReplacementIdx)
 	} else {

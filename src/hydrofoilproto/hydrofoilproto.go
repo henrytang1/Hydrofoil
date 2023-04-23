@@ -1,4 +1,4 @@
-package randomizedpaxosproto
+package hydrofoilproto
 
 import "state"
 

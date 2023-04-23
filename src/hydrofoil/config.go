@@ -1,4 +1,4 @@
-package randomizedpaxos
+package hydrofoil
 
 import (
 	"fmt"

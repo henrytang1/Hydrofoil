@@ -1,5 +1,4 @@
-// This example demonstrates a priority queue built using the heap interface.
-package randomizedpaxos
+package hydrofoil
 
 import (
 	"container/heap"

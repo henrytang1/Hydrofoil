@@ -1,4 +1,4 @@
-package randomizedpaxos
+package hydrofoil
 
 import (
 	"dlog"
@@ -155,14 +155,14 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 	}
 
 	// at this point, r.commitIndex >= int(rpc.GetCommitIndex())
-	if r.commitIndex == int(rpc.GetCommitIndex()) && (r.benOrState.benOrRunning || rpc.GetIteration() > 0) {
+	if r.commitIndex == int(rpc.GetCommitIndex()) {
 		if r.benOrState.benOrIteration < int(rpc.GetIteration()) {
 			heardServerFromBroadcast := make([]bool, r.N)
 			heardServerFromBroadcast[rpc.GetSenderId()] = true
 			fmt.Println("Replica", r.Id, "hmmm1")
 			r.startNewBenOrPlusIteration(int(rpc.GetIteration()), []Entry{rpc.GetBroadcastEntry()}, heardServerFromBroadcast)
 		
-		} else if r.benOrState.benOrIteration == int(rpc.GetIteration()) && r.benOrState.benOrStage == Broadcasting {
+		} else if r.benOrState.benOrRunning && r.benOrState.benOrIteration == int(rpc.GetIteration()) && r.benOrState.benOrStage == Broadcasting {
 			heardFromServerBefore := r.benOrState.heardServerFromBroadcast[rpc.GetSenderId()]
 
 			if !heardFromServerBefore {
@@ -303,10 +303,10 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 		caseStage := r.benOrState.benOrIteration == int(rpc.GetIteration()) && r.benOrState.benOrPhase == int(rpc.GetPhase()) && r.benOrState.benOrStage < rpc.GetStage()
 
 		if caseIteration || casePhase || caseStage {
-			if !r.benOrState.benOrRunning {
-				timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
-				setTimer(r.benOrResendTimer, time.Duration(timeout) * time.Millisecond)
-			}
+			// if !r.benOrState.benOrRunning {
+			timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
+			setTimer(r.benOrResendTimer, time.Duration(timeout) * time.Millisecond)
+			// }
 
 			var benOrBroadcastEntry Entry
 			var haveMajEntry bool

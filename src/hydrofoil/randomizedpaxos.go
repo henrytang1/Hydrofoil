@@ -1,4 +1,4 @@
-package randomizedpaxos
+package hydrofoil
 
 import (
 	"bufio"
@@ -8,26 +8,26 @@ import (
 	"fmt"
 	"genericsmr"
 	"genericsmrproto"
+	"hydrofoilproto"
 	"io"
 	"log"
 	"math/rand"
-	"randomizedpaxosproto"
 	"sort"
 	"state"
 	"time"
 )
 
-type Entry = randomizedpaxosproto.Entry
-type ReplicateEntries = randomizedpaxosproto.ReplicateEntries
-type ReplicateEntriesReply = randomizedpaxosproto.ReplicateEntriesReply
-type RequestVote = randomizedpaxosproto.RequestVote
-type RequestVoteReply = randomizedpaxosproto.RequestVoteReply
-type BenOrBroadcast = randomizedpaxosproto.BenOrBroadcast
-type BenOrBroadcastReply = randomizedpaxosproto.BenOrBroadcastReply
-type BenOrConsensus = randomizedpaxosproto.BenOrConsensus
-type BenOrConsensusReply = randomizedpaxosproto.BenOrConsensusReply
-type GetCommittedData = randomizedpaxosproto.GetCommittedData
-type GetCommittedDataReply = randomizedpaxosproto.GetCommittedDataReply
+type Entry = hydrofoilproto.Entry
+type ReplicateEntries = hydrofoilproto.ReplicateEntries
+type ReplicateEntriesReply = hydrofoilproto.ReplicateEntriesReply
+type RequestVote = hydrofoilproto.RequestVote
+type RequestVoteReply = hydrofoilproto.RequestVoteReply
+type BenOrBroadcast = hydrofoilproto.BenOrBroadcast
+type BenOrBroadcastReply = hydrofoilproto.BenOrBroadcastReply
+type BenOrConsensus = hydrofoilproto.BenOrConsensus
+type BenOrConsensusReply = hydrofoilproto.BenOrConsensusReply
+type GetCommittedData = hydrofoilproto.GetCommittedData
+type GetCommittedDataReply = hydrofoilproto.GetCommittedDataReply
 // type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
 // type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
 
@@ -89,8 +89,8 @@ const (
 )
 
 const (
-	False uint8 		= randomizedpaxosproto.False
-	True        		= randomizedpaxosproto.True
+	False uint8 		= hydrofoilproto.False
+	True        		= hydrofoilproto.True
 )
 
 func convertBoolToInteger(b bool) uint8 {
