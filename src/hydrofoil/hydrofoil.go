@@ -67,6 +67,7 @@ type BenOrConsensusMsg interface {
 	GetPhase() int32
 	GetStage() uint8
 	GetVote() uint8
+	GetPrevPhaseFinalValue() uint8
 	GetHaveMajEntry() uint8
 	GetMajEntry() Entry
 	GetStartIndex() int32
@@ -140,6 +141,8 @@ type BenOrState struct {
 	benOrVote			uint8
 	benOrConsensusMsgs		[]uint8
 	heardServerFromConsensus	[]bool
+
+	prevPhaseFinalValue		uint8 // final value from previous phase
 	
 	biasedCoin			bool
 }
@@ -286,8 +289,8 @@ var emptyCandidateState = CandidateState{
 var emptyBenOrState = BenOrState{
 	benOrRunning: false,
 
-	benOrIteration: -1,
-	benOrPhase: -1,
+	benOrIteration: 0,
+	benOrPhase: 0,
 	benOrStage: NotRunning,
 
 	benOrBroadcastEntry: emptyEntry,
@@ -300,6 +303,8 @@ var emptyBenOrState = BenOrState{
 	benOrVote: VoteUninitialized,
 	benOrConsensusMsgs: make([]uint8, 0),
 	heardServerFromConsensus: make([]bool, 0),
+
+	prevPhaseFinalValue: VoteUninitialized,
 	
 	biasedCoin: false,
 }
@@ -456,7 +461,7 @@ func (r *Replica) run() {
 			matchIndices := append(make([]int, 0, r.N), r.leaderState.repMatchIndex...)
 			sort.Sort(sort.Reverse(sort.IntSlice(matchIndices)))
 			dlog.Println("Replica", r.Id, "matchIndices", matchIndices)
-			if r.commitIndex < matchIndices[r.N/2] {
+			if r.commitIndex < matchIndices[r.N/2] && (!r.benOrState.benOrRunning || r.log[matchIndices[r.N/2]] == r.benOrState.benOrMajEntry) {
 				fmt.Println("Leader", r.Id, "committing using RAFT from", r.commitIndex + 1, "to", matchIndices[r.N/2])
 				r.commitIndex = matchIndices[r.N/2]
 				r.benOrState = emptyBenOrState
@@ -464,8 +469,6 @@ func (r *Replica) run() {
 				// setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
 				clearTimer(r.benOrResendTimer)
 			}
-
-			
 		}
 
 		if r.commitIndex > r.lastApplied {

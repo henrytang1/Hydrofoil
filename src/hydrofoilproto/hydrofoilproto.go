@@ -186,6 +186,7 @@ type BenOrConsensus struct {
     Stage   						uint8 // StageOne or StageTwo depending on BenOr stage
 
     Vote							uint8
+    PrevPhaseFinalValue             uint8
 
     HaveMajEntry   					uint8 // bool
     MajEntry						Entry
@@ -204,6 +205,7 @@ func (t *BenOrConsensus) GetIteration() int32 { return t.Iteration }
 func (t *BenOrConsensus) GetPhase() int32 { return t.Phase }
 func (t *BenOrConsensus) GetStage() uint8 { return t.Stage }
 func (t *BenOrConsensus) GetVote() uint8 { return t.Vote }
+func (t *BenOrConsensus) GetPrevPhaseFinalValue() uint8 { return t.PrevPhaseFinalValue }
 func (t *BenOrConsensus) GetHaveMajEntry() uint8 { return t.HaveMajEntry }
 func (t *BenOrConsensus) GetMajEntry() Entry { return t.MajEntry }
 func (t *BenOrConsensus) GetStartIndex() int32 { return t.CommitIndex + 1 }
@@ -223,6 +225,7 @@ type BenOrConsensusReply struct {
     Stage   						uint8 // StageOne or StageTwo depending on BenOr stage
 
     Vote							uint8
+    PrevPhaseFinalValue             uint8
 
     HaveMajEntry   					uint8 // bool
     MajEntry						Entry
@@ -242,6 +245,7 @@ func (t *BenOrConsensusReply) GetIteration() int32 { return t.Iteration }
 func (t *BenOrConsensusReply) GetPhase() int32 { return t.Phase }
 func (t *BenOrConsensusReply) GetStage() uint8 { return t.Stage }
 func (t *BenOrConsensusReply) GetVote() uint8 { return t.Vote }
+func (t *BenOrConsensusReply) GetPrevPhaseFinalValue() uint8 { return t.PrevPhaseFinalValue }
 func (t *BenOrConsensusReply) GetHaveMajEntry() uint8 { return t.HaveMajEntry }
 func (t *BenOrConsensusReply) GetMajEntry() Entry { return t.MajEntry }
 func (t *BenOrConsensusReply) GetStartIndex() int32 { return t.StartIndex }

@@ -30,10 +30,12 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 
 	var broadcastEntry Entry
 	benOrIndex := r.commitIndex + 1
+	// biasedCoin := false
 	if benOrIndex < len(r.log) {
 		dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from log")
 		broadcastEntry = r.log[benOrIndex]
 		broadcastEntry.Index = int32(r.commitIndex)+1
+		// biasedCoin = true
 	} else if !r.pq.isEmpty() {
 		dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from pq, current commit indx:", r.commitIndex)
 		broadcastEntry = r.pq.peek()
@@ -74,7 +76,9 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 		benOrVote: VoteUninitialized,
 		benOrConsensusMsgs: make([]uint8, 0),
 		heardServerFromConsensus: make([]bool, r.N),
-		
+
+		prevPhaseFinalValue: VoteUninitialized,
+
 		biasedCoin: false,
 	}
 
@@ -174,7 +178,16 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 
 					vote := Vote0
 					if haveMajEntry {
-						vote = Vote1
+						if r.commitIndex + 1 < len(r.log) && r.log[r.commitIndex + 1] != r.benOrState.benOrBroadcastEntry {
+							vote = Vote0
+						} else {
+							vote = Vote1
+						}
+					}
+
+					biasedCoin := false
+					if r.commitIndex + 1 < len(r.log) {
+						biasedCoin = true
 					}
 
 					r.benOrState = BenOrState{
@@ -194,8 +207,10 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 						benOrVote: vote,
 						benOrConsensusMsgs: make([]uint8, 0),
 						heardServerFromConsensus: make([]bool, r.N),
+
+						prevPhaseFinalValue: VoteUninitialized,
 						
-						biasedCoin: false,
+						biasedCoin: biasedCoin,
 					}
 
 					r.benOrState.benOrConsensusMsgs = append(r.benOrState.benOrConsensusMsgs, vote)
@@ -311,15 +326,49 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 			var benOrBroadcastEntry Entry
 			var haveMajEntry bool
 			var majEntry Entry
-			var biasedCoin bool	
+			var biasedCoin bool
+			var vote uint8
 			if caseIteration {
+				benOrIndex := r.commitIndex + 1
+
+				if benOrIndex < len(r.log) {
+					// dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from log")
+					// benOrBroadcastEntry = r.log[benOrIndex]
+					// benOrBroadcastEntry.Index = int32(benOrIndex)
+					biasedCoin = true
+				} else if !r.pq.isEmpty() {
+					// dlog.Println(r.Id, "Ben Or Plus: Broadcasting entry", benOrIndex, "from pq, current commit indx:", r.commitIndex)
+					// benOrBroadcastEntry = r.pq.peek()
+					// benOrBroadcastEntry.Index = int32(benOrIndex)
+					biasedCoin = false
+				}
+
 				benOrBroadcastEntry = emptyEntry
 				haveMajEntry = convertIntegerToBool(rpc.GetHaveMajEntry())
 				majEntry = rpc.GetMajEntry()
-				biasedCoin = false
+
+				if rpc.GetStage() == StageOne {
+					if rpc.GetPhase() == 0 {
+						if haveMajEntry {
+							vote = 1
+						} else {
+							vote = 0
+						}
+					} else {
+						if rpc.GetPrevPhaseFinalValue() == VoteQuestionMark {
+							vote = uint8(rand.Intn(2))
+						} else {
+							vote = rpc.GetVote()
+						}
+					}
+				} else {
+					vote = rpc.GetVote()
+				}
 			}
 
 			if casePhase || caseStage {
+				benOrIndex := r.commitIndex + 1
+
 				benOrBroadcastEntry = r.benOrState.benOrBroadcastEntry
 				haveMajEntry = r.benOrState.haveMajEntry
 				majEntry = r.benOrState.benOrMajEntry
@@ -331,6 +380,34 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 					haveMajEntry = true
 				}
 				biasedCoin = r.benOrState.biasedCoin
+
+				if rpc.GetStage() == StageOne {
+					if rpc.GetPhase() == 0 {
+						if r.benOrRunning() && haveMajEntry && benOrBroadcastEntry != majEntry {
+							vote = 0
+						} else {
+							if haveMajEntry {
+								vote = 1
+							} else {
+								vote = 0
+							}
+						}
+
+						if benOrIndex < len(r.log) {
+							biasedCoin = true
+						} else if !r.pq.isEmpty() {
+							biasedCoin = false
+						}
+					} else {
+						if rpc.GetPrevPhaseFinalValue() == VoteQuestionMark {
+							vote = uint8(rand.Intn(2))
+						} else {
+							vote = rpc.GetVote()
+						}
+					}
+				} else {
+					vote = rpc.GetVote()
+				}
 			}
 
 			r.benOrState = BenOrState{
@@ -347,14 +424,16 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 				haveMajEntry: haveMajEntry,
 				benOrMajEntry: majEntry,
 		
-				benOrVote: rpc.GetVote(),
+				benOrVote: vote,
 				benOrConsensusMsgs: make([]uint8, 0),
 				heardServerFromConsensus: make([]bool, r.N),
+
+				prevPhaseFinalValue: rpc.GetPrevPhaseFinalValue(),
 				
 				biasedCoin: biasedCoin,
 			}
 
-			r.benOrState.benOrConsensusMsgs = append(r.benOrState.benOrConsensusMsgs, r.benOrState.benOrVote, rpc.GetVote())
+			r.benOrState.benOrConsensusMsgs = append(r.benOrState.benOrConsensusMsgs, vote, rpc.GetVote())
 			r.benOrState.heardServerFromConsensus[r.Id] = true
 			r.benOrState.heardServerFromConsensus[rpc.GetSenderId()] = true
 		}
@@ -389,15 +468,6 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 						voteCount[msg]++
 					}
 
-					var vote uint8;
-					if voteCount[0] > r.N/2 {
-						vote = Vote0
-					} else if voteCount[1] > r.N/2 {
-						vote = Vote1
-					} else {
-						vote = VoteQuestionMark
-					}
-
 					if r.benOrState.benOrStage == StageTwo {
 						if voteCount[0] > 0 && voteCount[1] > 0 {
 							log.Fatal("Should not have both votes")
@@ -405,6 +475,15 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 					}
 
 					if r.benOrState.benOrStage == StageOne {
+						var vote uint8;
+						if voteCount[0] > r.N/2 {
+							vote = Vote0
+						} else if voteCount[1] > r.N/2 {
+							vote = Vote1
+						} else {
+							vote = VoteQuestionMark
+						}
+
 						r.benOrState = BenOrState{
 							benOrRunning: true,
 						
@@ -422,6 +501,8 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							benOrVote: vote,
 							benOrConsensusMsgs: make([]uint8, 0),
 							heardServerFromConsensus: make([]bool, r.N),
+
+							prevPhaseFinalValue: r.benOrState.prevPhaseFinalValue,
 							
 							biasedCoin: r.benOrState.biasedCoin,
 						}
@@ -431,11 +512,11 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 
 						r.startBenOrConsensusStage()
 					} else if r.benOrState.benOrStage == StageTwo {
-						fmt.Println("Consensus reached on server", r.Id, "for stage 2 with vote", vote)
-						if vote == Vote0 {
+						fmt.Println("Consensus reached on server", r.Id, "for stage 2")
+						if voteCount[0] > r.N/2 {
 							fmt.Println("Replica", r.Id, "hmmm2")
 							r.startNewBenOrPlusIteration(r.benOrState.benOrIteration + 1, make([]Entry, 0), make([]bool, r.N))
-						} else if vote == Vote1 {
+						} else if voteCount[1] > r.N/2 {
 							// commit entry
 							oldCommitIndex := r.commitIndex
 							newCommittedEntry := r.benOrState.benOrMajEntry
@@ -516,13 +597,23 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							}
 
 						} else {
+							var prevPhaseFinalValue uint8
 							var initialVote uint8
-							if r.benOrState.biasedCoin {
-								initialVote = 0
-								fmt.Println("Replica", r.Id, "biased coin flip for phase", r.benOrState.benOrPhase + 1)
+							if voteCount[0] > 0 {
+								prevPhaseFinalValue = Vote0
+								initialVote = Vote0
+							} else if voteCount[1] > 0 {
+								prevPhaseFinalValue = Vote1
+								initialVote = Vote1
 							} else {
-								initialVote = uint8(rand.Intn(2))
-								fmt.Println("Replica", r.Id, "random coin flip for phase", r.benOrState.benOrPhase + 1, "flip is", initialVote)
+								prevPhaseFinalValue = VoteQuestionMark
+								if r.benOrState.biasedCoin {
+									initialVote = Vote0
+									fmt.Println("Replica", r.Id, "biased coin flip for phase", r.benOrState.benOrPhase + 1)
+								} else {
+									initialVote = uint8(rand.Intn(2))
+									fmt.Println("Replica", r.Id, "random coin flip for phase", r.benOrState.benOrPhase + 1, "flip is", initialVote)
+								}
 							}
 
 							r.benOrState = BenOrState{
@@ -542,11 +633,13 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 								benOrVote: initialVote,
 								benOrConsensusMsgs: make([]uint8, 0),
 								heardServerFromConsensus: make([]bool, r.N),
+
+								prevPhaseFinalValue: prevPhaseFinalValue,
 								
 								biasedCoin: r.benOrState.biasedCoin,
 							}
 		
-							r.benOrState.benOrConsensusMsgs = append(r.benOrState.benOrConsensusMsgs, vote)
+							r.benOrState.benOrConsensusMsgs = append(r.benOrState.benOrConsensusMsgs, initialVote)
 							r.benOrState.heardServerFromConsensus[r.Id] = true
 	
 							r.startBenOrConsensusStage()

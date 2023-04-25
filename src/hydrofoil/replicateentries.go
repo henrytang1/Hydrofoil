@@ -127,11 +127,11 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		clearTimer(r.benOrResendTimer)
 	}
 
-	if r.benOrState.benOrStage == Broadcasting && r.commitIndex + 1 < len(r.log) && 
-		r.benOrState.benOrBroadcastEntry != r.log[r.commitIndex + 1] {
-		r.benOrState.biasedCoin = true
-		fmt.Println("Replica", r.Id, "set biased coin to true")
-	}
+	// if r.benOrState.benOrStage == Broadcasting && r.commitIndex + 1 < len(r.log) && 
+	// 	r.benOrState.benOrBroadcastEntry != r.log[r.commitIndex + 1] {
+	// 	r.benOrState.biasedCoin = true
+	// 	fmt.Println("Replica", r.Id, "set biased coin to true")
+	// }
 
 	entries := make([]Entry, 0)
 	if rpc.CommitIndex + 1 < int32(len(r.log)) {
