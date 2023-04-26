@@ -2,6 +2,7 @@ package hydrofoil
 
 import (
 	"bufio"
+	"dlog"
 	"encoding/binary"
 	"fastrpc"
 	"fmt"
@@ -372,11 +373,11 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 
 	r.Durable = durable
 	r.TestingState.IsProduction = isProduction
-	r.TestingState.IsConnected.Mu.Lock()
+	// r.TestingState.IsConnected.Mu.Lock()
 	for i := 0; i < r.N; i++ {
-		r.TestingState.IsConnected.Connected[i] = false
+		r.Connected[i] = false
 	}
-	r.TestingState.IsConnected.Mu.Unlock()
+	// r.TestingState.IsConnected.Mu.Unlock()
 
 	r.replicateEntriesRPC = r.RegisterRPC(new(ReplicateEntries), r.replicateEntriesChan)
 	r.replicateEntriesReplyRPC = r.RegisterRPC(new(ReplicateEntriesReply), r.replicateEntriesReplyChan)
@@ -549,12 +550,32 @@ func (r *Replica) run() {
 
 			case propose := <-r.ProposeChan:
 				//got a Propose from a client
-				// dlog.Printf("Replica %d received proposal with op %d\n", r.Id, propose.Command.Op)
+				dlog.Printf("Replica %d received proposal with op %d\n", r.Id, propose.Command.Op)
 				r.handlePropose(propose)
 				//deactivate the new proposals channel to prioritize the handling of protocol messages
 				// if MAX_BATCH > 100 {
 				// 	onOffProposeChan = nil
 				// }
+
+			case getState := <-r.GetStateChan:
+				//got a GetState request from a client
+				dlog.Printf("Replica %d received GetState from client\n", r.Id)
+				r.handleGetState(getState)
+			
+			case slowdown := <-r.SlowdownChan:
+				//got a Slowdown request from a client
+				dlog.Printf("Replica %d received Slowdown from client\n", r.Id)
+				r.handleSlowdown(slowdown)
+			
+			case connect := <-r.ConnectChan:
+				//got a Connect request from a client
+				dlog.Printf("Replica %d received Connect from client\n", r.Id)
+				r.handleConnect(connect)
+			
+			case disconnect := <-r.DisconnectChan:
+				//got a Disconnect request from a client
+				dlog.Printf("Replica %d received Disconnect from client\n", r.Id)
+				r.handleDisconnect(disconnect)
 
 			case replicateEntriesS := <-r.replicateEntriesChan:
 				startTime := time.Now().UnixMicro()
@@ -785,6 +806,46 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 // 		}
 // 	}
 // }
+
+func (r *Replica) handleGetState(getState *genericsmr.GetState) {
+	args := &genericsmrproto.GetStateReply{
+		IsLeader: convertBoolToInteger(r.leaderState.isLeader),
+	}
+	r.ReplyGetState(args, getState.Reply)
+}
+
+func (r *Replica) handleSlowdown(slowdown *genericsmr.Slowdown) {
+	args := &genericsmrproto.SlowdownReply{
+		Success: 1,
+	}
+	r.ReplySlowdown(args, slowdown.Reply)
+	time.Sleep(time.Duration(slowdown.TimeInMs) * time.Millisecond)
+}
+
+func (r *Replica) handleConnect(connect *genericsmr.Connect) {
+	for i := 0; i < r.N; i++ {
+		if int32(i) != r.Id {
+			r.Connected[i] = true
+		}
+	}
+
+	args := &genericsmrproto.ConnectReply{
+		Success: 1,
+	}
+	r.ReplyConnect(args, connect.Reply)
+}
+
+func (r *Replica) handleDisconnect(disconnect *genericsmr.Disconnect) {
+	for i := 0; i < r.N; i++ {
+		if int32(i) != r.Id {
+			r.Connected[i] = false
+		}
+	}
+	args := &genericsmrproto.DisconnectReply{
+		Success: 1,
+	}
+	r.ReplyDisconnect(args, disconnect.Reply)
+}
 
 func (r *Replica) shouldLogBeReplaced(rpc UpdateMsg, logStartIdx int) (bool, int) { // should you replace, and if you should, the first index to start replacing
 	firstEntryIndex := int(rpc.GetStartIndex())

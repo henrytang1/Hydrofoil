@@ -17,6 +17,14 @@ const (
 	REGISTER_CLIENT_ID_REPLY
 	GET_VIEW
 	GET_VIEW_REPLY
+	GET_STATE
+	GET_STATE_REPLY
+	SLOWDOWN
+	SLOWDOWN_REPLY
+	CONNECT
+	CONNECT_REPLY
+	DISCONNECT
+	DISCONNECT_REPLY
 )
 
 type Propose struct {
@@ -112,9 +120,17 @@ type GetStateReply struct {
 }
 
 type Slowdown struct {
+	TimeInMs uint32
 }
 
 type SlowdownReply struct {
+	Success uint8
+}
+
+type Connect struct {
+}
+
+type ConnectReply struct {
 	Success uint8
 }
 

@@ -385,7 +385,7 @@ func TestBenOrManyReconnects(t *testing.T) {
 
 	for i := 0; i< servers; i++ {
 		for j := 0; j < servers; j++ {
-			fmt.Println("Connection from", i, "to", j, "is", cfg.replicas[i].TestingState.IsConnected.Connected[j])
+			fmt.Println("Connection from", i, "to", j, "is", cfg.replicas[i].Connected[j])
 		}
 	}
 

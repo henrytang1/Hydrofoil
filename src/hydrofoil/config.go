@@ -27,12 +27,12 @@ var CLIENTID uint32 = 0
 func (cfg *config) connect(i int) {
 	for j := 0; j < cfg.n; j++ {
 		if i != j && cfg.connectedToNet[j] {
-			cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
-			cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
-			cfg.replicas[i].TestingState.IsConnected.Connected[j] = true
-			cfg.replicas[j].TestingState.IsConnected.Connected[i] = true
-			cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
-			cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
+			// cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
+			// cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
+			cfg.replicas[i].Connected[j] = true
+			cfg.replicas[j].Connected[i] = true
+			// cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
+			// cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
 		}
 	}
 	cfg.connectedToNet[i] = true
@@ -42,12 +42,12 @@ func (cfg *config) connect(i int) {
 func (cfg *config) disconnect(i int) {
 	for j := 0; j < cfg.n; j++ {
 		if i != j {
-			cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
-			cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
-			cfg.replicas[i].TestingState.IsConnected.Connected[j] = false
-			cfg.replicas[j].TestingState.IsConnected.Connected[i] = false
-			cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
-			cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
+			// cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
+			// cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
+			cfg.replicas[i].Connected[j] = false
+			cfg.replicas[j].Connected[i] = false
+			// cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
+			// cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
 		}
 	}
 	cfg.connectedToNet[i] = false

@@ -95,6 +95,12 @@ type View struct {
 	Active    bool
 }
 
+type ReplyMsg struct {
+	Type      uint8
+	ReplicaId int
+	Data      int32
+}
+
 var throughputs []DataPoint
 
 func main() {
@@ -280,14 +286,16 @@ func main() {
 	}
 
 	var leaderReplyChan chan int32
+	var configReplyChan chan ReplyMsg
 	var pilot0ReplyChan chan Response
 	var viewChangeChan chan *View
 
 	// with pre-specified leader, we know which reader to check reply
 	if *oneLeaderFailure {
 		leaderReplyChan = make(chan int32, *reqsNb)
+		configReplyChan = make(chan ReplyMsg, *reqsNb)
 		for i := 0; i < N; i++ {
-			go waitRepliesReplica(readers[i], leaderReplyChan)
+			go waitRepliesReplica(readers[i], i, leaderReplyChan, configReplyChan)
 		}
 	} else if !*twoLeaders {
 		leaderReplyChan = make(chan int32, *reqsNb)
@@ -477,6 +485,32 @@ func main() {
 			} else if *noLeader == false { /*MultiPaxos*/
 				leader = 0
 			}
+
+			if i % 1000 == 0 {
+				fmt.Println("Sent", i, "requests")
+				getStateArgs := genericsmrproto.GetState{}
+
+				for j := 0; j < N; j++ {
+					writers[j].WriteByte(genericsmrproto.GET_STATE)
+					getStateArgs.Marshal(writers[j])
+					writers[j].Flush()
+				}
+
+				j := 0
+				for {
+					select {
+					case e := <-configReplyChan:
+						j++
+						fmt.Println("Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
+					default:
+					}
+
+					if j == N {
+						break
+					}
+				}
+			}
+
 			if leader >= 0 {
 				writers[leader].WriteByte(genericsmrproto.PROPOSE)
 				args.Marshal(writers[leader])
@@ -627,10 +661,9 @@ func waitReplies(readers []*bufio.Reader, leader int, n int, done chan int32, ex
 	}
 }
 
-func waitRepliesReplica(reader *bufio.Reader, done chan int32) {
+func waitRepliesReplica(reader *bufio.Reader, repId int, done chan int32, configDone chan ReplyMsg) {
 	var msgType byte
 	var err error
-	reply := new(genericsmrproto.ProposeReplyTS)
 	fmt.Println("Waiting for replies")
 
 	for true {
@@ -642,6 +675,7 @@ func waitRepliesReplica(reader *bufio.Reader, done chan int32) {
 		switch msgType {
 		case genericsmrproto.PROPOSE_REPLY:
 			fmt.Println("Received reply")
+			reply := new(genericsmrproto.ProposeReplyTS)
 			if err = reply.Unmarshal(reader); err != nil {
 				continue
 			}
@@ -651,6 +685,41 @@ func waitRepliesReplica(reader *bufio.Reader, done chan int32) {
 				done <- reply.CommandId
 			}
 			break
+
+		case genericsmrproto.GET_STATE_REPLY:
+			fmt.Println("Received reply before", repId)
+			gst := new(genericsmrproto.GetStateReply)
+			if err = gst.Unmarshal(reader); err != nil {
+				continue
+			}
+			configDone <- ReplyMsg{msgType, repId, int32(gst.IsLeader)}
+			fmt.Println("Received reply after", repId)
+			break
+
+		case genericsmrproto.SLOWDOWN_REPLY:
+			slowdown := new(genericsmrproto.SlowdownReply)
+			if err = slowdown.Unmarshal(reader); err != nil {
+				continue
+			}
+			configDone <- ReplyMsg{msgType, repId, int32(slowdown.Success)}
+			break
+
+		case genericsmrproto.CONNECT_REPLY:
+			connect := new(genericsmrproto.ConnectReply)
+			if err = connect.Unmarshal(reader); err != nil {
+				continue
+			}
+			configDone <- ReplyMsg{msgType, repId, int32(connect.Success)}
+			break
+		
+		case genericsmrproto.DISCONNECT_REPLY:
+			disconnect := new(genericsmrproto.DisconnectReply)
+			if err = disconnect.Unmarshal(reader); err != nil {
+				continue
+			}
+			configDone <- ReplyMsg{msgType, repId, int32(disconnect.Success)}
+			break
+
 		default:
 			fmt.Println("Unknown message type")
 			break

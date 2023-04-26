@@ -46,10 +46,30 @@ type GetView struct {
 	Reply *bufio.Writer
 }
 
-type IsConnectedStatus struct {
-	Mu 		sync.Mutex
-	Connected	map[int]bool
+type GetState struct {
+	*genericsmrproto.GetState
+	Reply *bufio.Writer
 }
+
+type Slowdown struct {
+	*genericsmrproto.Slowdown
+	Reply *bufio.Writer
+}
+
+type Connect struct {
+	*genericsmrproto.Connect
+	Reply *bufio.Writer
+}
+
+type Disconnect struct {
+	*genericsmrproto.Disconnect
+	Reply *bufio.Writer
+}
+
+// type IsConnectedStatus struct {
+// 	// Mu 		sync.Mutex
+// 	Connected	map[int]bool
+// }
 
 type RepCommand struct {
 	ServerId int
@@ -58,7 +78,7 @@ type RepCommand struct {
 
 type Testing struct { // for testing purposes only
 	IsProduction bool
-	IsConnected  IsConnectedStatus
+	// IsConnected  IsConnectedStatus
 	IsReliable   map[int]bool
 	RequestChan  chan state.Command
 	ResponseChan chan RepCommand
@@ -112,7 +132,17 @@ type Replica struct {
 
 	GetViewChan chan *GetView
 
+	GetStateChan chan *GetState
+
+	SlowdownChan chan *Slowdown
+
+	ConnectChan chan *Connect
+
+	DisconnectChan chan *Disconnect
+
 	TestingState Testing
+
+	Connected	map[int]bool
 }
 
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool) *Replica {
@@ -142,7 +172,12 @@ func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply b
 		make(chan bool, 1200),
 		make(chan *Client, CHAN_BUFFER_SIZE),
 		make(chan *GetView, CHAN_BUFFER_SIZE),
-		Testing{true, IsConnectedStatus{Connected: make(map[int]bool)}, make(map[int]bool), nil, nil},
+		make(chan *GetState, CHAN_BUFFER_SIZE),
+		make(chan *Slowdown, CHAN_BUFFER_SIZE),
+		make(chan *Connect, CHAN_BUFFER_SIZE),
+		make(chan *Disconnect, CHAN_BUFFER_SIZE),
+		Testing{true, make(map[int]bool), nil, nil},
+		make(map[int]bool),
 	}
 
 	var err error
@@ -192,13 +227,11 @@ func (r *Replica) ConnectToPeersSim(serverId int, simConn *SimConn, reliable boo
 	r.PeerReaders[serverId] = LockedReader{bufio.NewReader(simConn), &sync.Mutex{}}
 	r.PeerWriters[serverId] = LockedWriter{bufio.NewWriter(simConn), &sync.Mutex{}}
 
-	if !r.TestingState.IsProduction {
-		r.TestingState.IsConnected.Mu.Lock()
-		r.TestingState.IsConnected.Connected[serverId] = true
-		r.TestingState.IsReliable[serverId] = reliable
-		dlog.Println("server", r.Id, "connected to server", serverId)
-		r.TestingState.IsConnected.Mu.Unlock()
-	}
+	// r.TestingState.IsConnected.Mu.Lock()
+	r.Connected[serverId] = true
+	r.TestingState.IsReliable[serverId] = reliable
+	dlog.Println("server", r.Id, "connected to server", serverId)
+	// r.TestingState.IsConnected.Mu.Unlock()
 }
 
 func (r *Replica) ConnectListenToPeers() {
@@ -237,6 +270,7 @@ func (r *Replica) ConnectToPeers() {
 		r.Alive[i] = true
 		r.PeerReaders[i] = LockedReader{bufio.NewReader(r.Peers[i]), &sync.Mutex{}}
 		r.PeerWriters[i] = LockedWriter{bufio.NewWriter(r.Peers[i]), &sync.Mutex{}}
+		r.Connected[i] = true
 	}
 	<-done
 	log.Printf("Replica id: %d. Done connecting to peers\n", r.Id)
@@ -300,6 +334,7 @@ func (r *Replica) waitForPeerConnections(done chan bool) {
 		r.PeerReaders[id] = LockedReader{bufio.NewReader(conn), &sync.Mutex{}}
 		r.PeerWriters[id] = LockedWriter{bufio.NewWriter(conn), &sync.Mutex{}}
 		r.Alive[id] = true
+		r.Connected[int(id)] = true
 	}
 
 	done <- true
@@ -471,17 +506,30 @@ func (r *Replica) replicaListener(rid int, reader LockedReader) {
 					break
 				}
 
-				if !r.TestingState.IsProduction {
-					if t, ok := obj.(HasSenderId); ok {
-						r.TestingState.IsConnected.Mu.Lock()
-						if !r.TestingState.IsConnected.Connected[int(t.GetSenderId())] {
-							r.TestingState.IsConnected.Mu.Unlock()
-							fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
-							continue
-						} else {
-							r.TestingState.IsConnected.Mu.Unlock()
-							rpair.Chan <- obj
-						}
+				// if !r.TestingState.IsProduction {
+				// 	if t, ok := obj.(HasSenderId); ok {
+				// 		// r.TestingState.IsConnected.Mu.Lock()
+				// 		if !r.Connected[int(t.GetSenderId())] {
+				// 			// r.TestingState.IsConnected.Mu.Unlock()
+				// 			fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
+				// 			continue
+				// 		} else {
+				// 			// r.TestingState.IsConnected.Mu.Unlock()
+				// 			rpair.Chan <- obj
+				// 		}
+				// 	}
+				// } else {
+				// 	rpair.Chan <- obj
+				// }
+				if t, ok := obj.(HasSenderId); ok {
+					// r.TestingState.IsConnected.Mu.Lock()
+					if !r.Connected[int(t.GetSenderId())] {
+						// r.TestingState.IsConnected.Mu.Unlock()
+						fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
+						continue
+					} else {
+						// r.TestingState.IsConnected.Mu.Unlock()
+						rpair.Chan <- obj
 					}
 				} else {
 					rpair.Chan <- obj
@@ -617,8 +665,40 @@ func (r *Replica) clientListener(conn net.Conn) {
 			}
 			r.GetViewChan <- &GetView{gv, writer}
 			break
-		}
 
+		case genericsmrproto.GET_STATE:
+			fmt.Println("Replica %d: GET_STATE received", r.Id)
+			gst := new(genericsmrproto.GetState)
+			if err = gst.Unmarshal(reader); err != nil {
+				break
+			}
+			r.GetStateChan <- &GetState{gst, writer}
+			break
+
+		case genericsmrproto.SLOWDOWN:
+			slowdown := new(genericsmrproto.Slowdown)
+			if err = slowdown.Unmarshal(reader); err != nil {
+				break
+			}
+			r.SlowdownChan <- &Slowdown{slowdown, writer}
+			break
+
+		case genericsmrproto.CONNECT:
+			connect := new(genericsmrproto.Connect)
+			if err = connect.Unmarshal(reader); err != nil {
+				break
+			}
+			r.ConnectChan <- &Connect{connect, writer}
+			break
+		
+		case genericsmrproto.DISCONNECT:
+			disconnect := new(genericsmrproto.Disconnect)
+			if err = disconnect.Unmarshal(reader); err != nil {
+				break
+			}
+			r.DisconnectChan <- &Disconnect{disconnect, writer}
+			break
+		}
 	}
 	if err != nil && err != io.EOF {
 		log.Println("Error when reading from client connection:", err)
@@ -633,15 +713,15 @@ func (r *Replica) RegisterRPC(msgObj fastrpc.Serializable, notify chan fastrpc.S
 }
 
 func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
-	if !r.TestingState.IsProduction{
-		r.TestingState.IsConnected.Mu.Lock()
-		if !r.TestingState.IsConnected.Connected[int(peerId)] {
-			r.TestingState.IsConnected.Mu.Unlock()
+	// if !r.TestingState.IsProduction{
+		// r.TestingState.IsConnected.Mu.Lock()
+		if !r.Connected[int(peerId)] {
+			// r.TestingState.IsConnected.Mu.Unlock()
 			// fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")
 			return
 		}
-		r.TestingState.IsConnected.Mu.Unlock()
-	}
+		// r.TestingState.IsConnected.Mu.Unlock()
+	// }
 
 	if !r.TestingState.IsProduction && !r.TestingState.IsReliable[int(peerId)] {
 		// short delay
@@ -653,9 +733,9 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 				return
 			}
 
-			r.TestingState.IsConnected.Mu.Lock()
-			if r.TestingState.IsConnected.Connected[int(peerId)] {
-				r.TestingState.IsConnected.Mu.Unlock()
+			// r.TestingState.IsConnected.Mu.Lock()
+			if r.Connected[int(peerId)] {
+				// r.TestingState.IsConnected.Mu.Unlock()
 				// fmt.Println("Replica", r.Id, "sending message to peer", peerId)
 				w := r.PeerWriters[peerId]
 				w.mu.Lock()
@@ -664,7 +744,7 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 				w.Flush()
 				w.mu.Unlock()
 			} else {
-				r.TestingState.IsConnected.Mu.Unlock()
+				// r.TestingState.IsConnected.Mu.Unlock()
 			}
 			// else {
 			// 	fmt.Println("Replica", r.Id, "wants to send message to peer", peerId, "but it is not connected")
@@ -726,6 +806,31 @@ func (r *Replica) ReplyRegisterClientId(reply *genericsmrproto.RegisterClientIdR
 
 func (r *Replica) ReplyGetView(reply *genericsmrproto.GetViewReply, w *bufio.Writer) {
 	w.WriteByte(genericsmrproto.GET_VIEW_REPLY)
+	reply.Marshal(w)
+	w.Flush()
+}
+
+func (r *Replica) ReplyGetState(reply *genericsmrproto.GetStateReply, w *bufio.Writer) {
+	fmt.Println("Replying get state")
+	w.WriteByte(genericsmrproto.GET_STATE_REPLY)
+	reply.Marshal(w)
+	w.Flush()
+}
+
+func (r *Replica) ReplySlowdown(reply *genericsmrproto.SlowdownReply, w *bufio.Writer) {
+	w.WriteByte(genericsmrproto.SLOWDOWN_REPLY)
+	reply.Marshal(w)
+	w.Flush()
+}
+
+func (r *Replica) ReplyConnect(reply *genericsmrproto.ConnectReply, w *bufio.Writer) {
+	w.WriteByte(genericsmrproto.CONNECT_REPLY)
+	reply.Marshal(w)
+	w.Flush()
+}
+
+func (r *Replica) ReplyDisconnect(reply *genericsmrproto.DisconnectReply, w *bufio.Writer) {
+	w.WriteByte(genericsmrproto.DISCONNECT_REPLY)
 	reply.Marshal(w)
 	w.Flush()
 }

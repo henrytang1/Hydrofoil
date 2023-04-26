@@ -589,18 +589,20 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							
 							r.commitIndex++
 
+							// else if time.Since(r.lastHeardFromLeader) > time.Duration(3 * r.benOrStartTimeout)*time.Millisecond {
+							// 	fmt.Println("starting immediately after commit")
+							// 	// start ben or immediately again if we haven't recently heard from leader
+							// 	// dlog.Println("Replica", r.Id, "starting BenOrPlus immediately after commit, current time: ", time.Now(), "last heard from leader: ", r.lastHeardFromLeader, "timeout: ", r.benOrStartTimeout)
+							// 	r.startBenOrPlus()
+							
+							// } 
+
 							if r.leaderState.isLeader {
 								clearTimer(r.benOrResendTimer)
 
-							} else if time.Since(r.lastHeardFromLeader) > time.Duration(3 * r.benOrStartTimeout)*time.Millisecond {
-								fmt.Println("starting immediately after commit")
-								// start ben or immediately again if we haven't recently heard from leader
-								// dlog.Println("Replica", r.Id, "starting BenOrPlus immediately after commit, current time: ", time.Now(), "last heard from leader: ", r.lastHeardFromLeader, "timeout: ", r.benOrStartTimeout)
-								r.startBenOrPlus()
-							
 							} else {
 								// dlog.Println("Replica", r.Id, "ending BenOrPlus after commit")
-								fmt.Println("ending after commit")
+								// fmt.Println("ending after commit")
 								// restart BenOr Timer
 								timeout := rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
 								setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
