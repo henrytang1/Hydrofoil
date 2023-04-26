@@ -284,7 +284,7 @@ func (r *Replica) run() {
 		if int32(rid) == r.Id {
 			continue
 		}
-		go r.handleReplicaConnection(rid, peerReader)
+		go r.handleReplicaConnection(rid, peerReader.Reader)
 	}
 
 	dlog.Println("Waiting for client connections")
@@ -451,7 +451,7 @@ func (r *Replica) bcastPrepare(replica int32, instance int32, ballot int32) {
 			continue
 		}
 		sent++
-		w = r.PeerWriters[q]
+		w = r.PeerWriters[q].Writer
 		w.WriteByte(gpaxosproto.PREPARE)
 		args.Marshal(w)
 		w.Flush()
@@ -488,7 +488,7 @@ func (r *Replica) bcast1a(balnum int32, fast bool) {
 			continue
 		}
 		sent++
-		w = r.PeerWriters[q]
+		w = r.PeerWriters[q].Writer
 		w.WriteByte(gpaxosproto.M1A)
 		args.Marshal(w)
 		w.Flush()
@@ -522,7 +522,7 @@ func (r *Replica) bcast2a(balnum int32, cstruct []int32, fast bool) {
 			continue
 		}
 		sent++
-		w = r.PeerWriters[q]
+		w = r.PeerWriters[q].Writer
 		w.WriteByte(gpaxosproto.M2A)
 		args.Marshal(w)
 		w.Flush()
@@ -549,7 +549,7 @@ func (r *Replica) bcastCommit(cstruct []int32) {
 			continue
 		}
 		sent++
-		w = r.PeerWriters[q]
+		w = r.PeerWriters[q].Writer
 		w.WriteByte(gpaxosproto.COMMIT)
 		args.Marshal(w)
 		w.Flush()
@@ -610,7 +610,7 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 					r.bcast2b(&gpaxosproto.M_2b{r.Id, r.crtBalnum, crtBallot.cstruct, b[:1]})
 					r.tryToLearn()
 				} else {
-					r.send2b(&gpaxosproto.M_2b{r.Id, r.crtBalnum, crtBallot.cstruct, b[:1]}, r.PeerWriters[r.leaderId])
+					r.send2b(&gpaxosproto.M_2b{r.Id, r.crtBalnum, crtBallot.cstruct, b[:1]}, r.PeerWriters[r.leaderId].Writer)
 				}
 			}
 		}
@@ -631,9 +631,9 @@ func (r *Replica) handle1a(msg *gpaxosproto.M_1a) {
 	}
 
 	if r.crtBalnum >= 0 {
-		r.send1b(&gpaxosproto.M_1b{r.Id, msg.Balnum, r.ballotArray[r.crtBalnum].cstruct}, r.PeerWriters[r.leaderId])
+		r.send1b(&gpaxosproto.M_1b{r.Id, msg.Balnum, r.ballotArray[r.crtBalnum].cstruct}, r.PeerWriters[r.leaderId].Writer)
 	} else {
-		r.send1b(&gpaxosproto.M_1b{r.Id, msg.Balnum, make([]int32, 0)}, r.PeerWriters[r.leaderId])
+		r.send1b(&gpaxosproto.M_1b{r.Id, msg.Balnum, make([]int32, 0)}, r.PeerWriters[r.leaderId].Writer)
 	}
 
 	r.crtBalnum = msg.Balnum
@@ -723,7 +723,7 @@ func (r *Replica) handle2a(msg *gpaxosproto.M_2a) {
 		r.bcast2b(&gpaxosproto.M_2b{r.Id, r.crtBalnum, crtbal.cstruct, cids})
 		r.tryToLearn()
 	} else {
-		r.send2b(&gpaxosproto.M_2b{r.Id, r.crtBalnum, crtbal.cstruct, cids}, r.PeerWriters[r.leaderId])
+		r.send2b(&gpaxosproto.M_2b{r.Id, r.crtBalnum, crtbal.cstruct, cids}, r.PeerWriters[r.leaderId].Writer)
 	}
 }
 

@@ -82,6 +82,9 @@ type BeTheLeaderArgs struct {
 type BeTheLeaderReply struct {
 }
 
+type GetStatus struct {
+}
+
 type RegisterClientIdArgs struct {
 	ClientId uint32
 }
@@ -99,4 +102,25 @@ type GetViewReply struct {
 	ViewId    int32
 	PilotId   int32 // index of this pilot
 	ReplicaId int32 // unique id of this pilot replica
+}
+
+type GetState struct {
+}
+
+type GetStateReply struct {
+	IsLeader  uint8 // 0: not leader; 1: leader
+}
+
+type Slowdown struct {
+}
+
+type SlowdownReply struct {
+	Success uint8
+}
+
+type Disconnect struct {
+}
+
+type DisconnectReply struct {
+	Success uint8
 }

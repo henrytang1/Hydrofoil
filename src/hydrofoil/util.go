@@ -205,8 +205,8 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 	if r.commitIndex != int(rpc.GetCommitIndex()) {
 		return convertBoolToOrder(r.commitIndex > int(rpc.GetCommitIndex()))
 	}
-	if r.leaderTerm != int(rpc.GetLogTerm()) {
-		return convertBoolToOrder(r.leaderTerm > int(rpc.GetLogTerm()))
+	if r.leaderTerm != int(rpc.GetLeaderTerm()) {
+		return convertBoolToOrder(r.leaderTerm > int(rpc.GetLeaderTerm()))
 	}
 	if len(r.log) != int(rpc.GetLogLength()) {
 		return convertBoolToOrder(len(r.log) > int(rpc.GetLogLength()))

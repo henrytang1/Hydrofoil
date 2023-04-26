@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"gpaxos"
+	"hydrofoil"
 	"latentcopilot"
 	"log"
 	"masterproto"
@@ -30,6 +31,7 @@ var doGpaxos *bool = flag.Bool("g", false, "Use Generalized Paxos as the replica
 var doEpaxos *bool = flag.Bool("e", false, "Use EPaxos as the replication protocol. Defaults to false.")
 var doCopilot *bool = flag.Bool("copilot", false, "Use Copilot as the replication protocol. Defaults to false.")
 var doLatentCopilot *bool = flag.Bool("latentcopilot", false, "Use Latent Copilot as the replication protocol. Defaults to false.")
+var doHydrofoil *bool = flag.Bool("hydrofoil", false, "Use Hydrofoil as the replication protocol. Defaults to false.")
 var procs *int = flag.Int("p", 2, "GOMAXPROCS. Defaults to 2")
 var cpuprofile *string = flag.String("cpuprofile", "", "write cpu profile to file")
 var thrifty *bool = flag.Bool("thrifty", false, "Use only as many messages as strictly required for inter-replica communication.")
@@ -79,6 +81,10 @@ func main() {
 	} else if *doLatentCopilot {
 		log.Println("Starting Latent Copilot replica...")
 		rep := latentcopilot.NewReplica(replicaId, nodeList, *thrifty, *exec, *dreply, *beacon, *durable, *rreply)
+		rpc.Register(rep)
+	} else if *doHydrofoil {
+		log.Println("Starting Hydrofoil replica...")
+		rep := hydrofoil.NewReplica(replicaId, nodeList, *thrifty, *exec, *dreply, *durable)
 		rpc.Register(rep)
 	} else {
 		log.Println("Starting classic Paxos replica...")

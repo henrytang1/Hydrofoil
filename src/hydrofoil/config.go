@@ -1,7 +1,7 @@
 package hydrofoil
 
 import (
-	"fmt"
+	"dlog"
 	"genericsmr"
 	"io"
 	"reflect"
@@ -36,7 +36,7 @@ func (cfg *config) connect(i int) {
 		}
 	}
 	cfg.connectedToNet[i] = true
-	fmt.Println("Server", i, " connected to network")
+	dlog.Println("Server", i, " connected to network")
 }
 
 func (cfg *config) disconnect(i int) {
@@ -51,7 +51,7 @@ func (cfg *config) disconnect(i int) {
 		}
 	}
 	cfg.connectedToNet[i] = false
-	fmt.Println("Server", i, " disconnected from network")
+	dlog.Println("Server", i, " disconnected from network")
 }
 
 func makeNetwork(n int) *network {
@@ -170,9 +170,9 @@ func (cfg *config) listen() {
 	for data := range cfg.responseChan {
 		replica := data.ServerId
 		cmd := data.Command
-		// fmt.Println("Got execution", cmd.OpId, "from replica", replica, "before append")
+		// dlog.Println("Got execution", cmd.OpId, "from replica", replica, "before append")
 		cfg.repExecutions[replica] = append(cfg.repExecutions[replica], cmd)
-		// fmt.Println("Got execution", cmd.OpId, "from replica", replica, "after append")
+		// dlog.Println("Got execution", cmd.OpId, "from replica", replica, "after append")
 		// idx := len(cfg.repExecutions[replica]) - 1
 
 		// for i := 0; i < cfg.n; i++ {
@@ -229,7 +229,7 @@ func (cfg *config) commandsExecuted() []state.Command {
 			maxLength = len(cfg.repExecutions[i])
 			commands = cfg.repExecutions[i]
 		}
-		fmt.Println("Replica ", i, " execution log: ", commandToString(cfg.repExecutions[i]))
+		dlog.Println("Replica ", i, " execution log: ", commandToString(cfg.repExecutions[i]))
 	}
 	return commands
 }
@@ -244,7 +244,7 @@ func (cfg *config) checkLogData() []state.Command {
 			} else {
 				if !reflect.DeepEqual(logData, cfg.repExecutions[i]) {
 					for j := 0; j < cfg.n; j++ {
-						fmt.Println("Replica ", j, " log: ", commandToString(cfg.repExecutions[j]))
+						dlog.Println("Replica ", j, " log: ", commandToString(cfg.repExecutions[j]))
 					}
 					cfg.t.Fatal("Log data is not the same for all replicas")
 				}
@@ -255,11 +255,11 @@ func (cfg *config) checkLogData() []state.Command {
 }
 
 func (cfg *config) sendCommand(rep int, cmdId int) bool {
-	fmt.Println(cmdId)
+	dlog.Println(cmdId)
 	cmd := state.Command{ClientId: CLIENTID, OpId: int32(cmdId), Op: state.PUT, K: 0, V: 0}
-	fmt.Println("SEND COMMAND: ", cmd.OpId, " TO ", rep, "START")
+	dlog.Println("SEND COMMAND: ", cmd.OpId, " TO ", rep, "START")
 	cfg.requestChan[rep] <- cmd
-	fmt.Println("SEND COMMAND: ", cmd.OpId, " TO ", rep, "END")
+	dlog.Println("SEND COMMAND: ", cmd.OpId, " TO ", rep, "END")
 	isLeader, _, _, _ := cfg.replicas[rep].getState()
 	return isLeader
 }
@@ -273,7 +273,7 @@ func (cfg *config) cleanup() {
 func (cfg *config) sendCommandCheckResults(rep int, cmdId int, expectedReplicas int) (bool, time.Time) {
 	cfg.sendCommand(rep, cmdId)
 	t1 := time.Now()
-	fmt.Println("TIME BEGIN: ", t1, time.Now().UnixMilli())
+	dlog.Println("TIME BEGIN: ", t1, time.Now().UnixMilli())
 	for time.Since(t1).Seconds() < 2 {
 		numFound := 0
 		for i := 0; i < cfg.n; i++ {
@@ -285,12 +285,12 @@ func (cfg *config) sendCommandCheckResults(rep int, cmdId int, expectedReplicas 
 			}
 		}
 		if numFound >= expectedReplicas {
-			fmt.Println("TIME END: ", time.Since(t1).Milliseconds())
+			dlog.Println("TIME END: ", time.Since(t1).Milliseconds())
 			return true, time.Now()
 		}
 		time.Sleep(3 * time.Millisecond)
 	}
-	fmt.Println("TIME END: ", time.Since(t1).Milliseconds())
+	dlog.Println("TIME END: ", time.Since(t1).Milliseconds())
 	return false, time.Now()
 }
 
@@ -312,7 +312,7 @@ func (cfg *config) sendCommandLeaderCheckReplicas(cmdId int, expectedReplicas in
 				isLeader, _, _, _ := cfg.replicas[starts].getState()
 				if isLeader {
 					cfg.sendCommand(starts, cmdId + inc)
-					fmt.Println("Sent command", cmdId, "to", starts)
+					dlog.Println("Sent command", cmdId, "to", starts)
 					index = starts
 					break
 				}
@@ -344,7 +344,7 @@ func (cfg *config) sendCommandLeaderCheckReplicas(cmdId int, expectedReplicas in
 		}
 	}
 	for j := 0; j < cfg.n; j++ {
-		fmt.Println("Replica ", j, " log: ", commandToString(cfg.repExecutions[j]))
+		dlog.Println("Replica ", j, " log: ", commandToString(cfg.repExecutions[j]))
 	}
 	return false
 }

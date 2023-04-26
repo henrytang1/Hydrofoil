@@ -33,7 +33,9 @@ var masterPort *int = flag.Int("mport", 7087, "Master port.  Defaults to 7077.")
 var reqsNb *int = flag.Int("q", 5000, "Total number of requests. Defaults to 5000.")
 var writes *int = flag.Int("w", 100, "Percentage of updates (writes). Defaults to 100%.")
 var noLeader *bool = flag.Bool("e", false, "Egalitarian (no leader). Defaults to false.")
-var twoLeaders *bool = flag.Bool("twoLeaders", true, "Two leaders for slowdown tolerance. Defaults to false.")
+var twoLeaders *bool = flag.Bool("twoLeaders", false, "Two leaders for slowdown tolerance. Defaults to false.")
+var oneLeaderFailure *bool = flag.Bool("oneLeaderFailure", false, "One leader that fails. Defaults to false.")
+
 var fast *bool = flag.Bool("f", false, "Fast Paxos: send message directly to all replicas. Defaults to false.")
 var rounds *int = flag.Int("r", 1, "Split the total number of requests into this many rounds, and do rounds sequentially. Defaults to 1.")
 var procs *int = flag.Int("p", 2, "GOMAXPROCS. Defaults to 2")
@@ -203,7 +205,7 @@ func main() {
 
 	}
 
-	if *twoLeaders {
+	if *twoLeaders || *oneLeaderFailure {
 		fmt.Println("Registering client id", clientId)
 		/* Register Client Id */
 		for i := 0; i < N; i++ {
@@ -282,7 +284,12 @@ func main() {
 	var viewChangeChan chan *View
 
 	// with pre-specified leader, we know which reader to check reply
-	if !*twoLeaders {
+	if *oneLeaderFailure {
+		leaderReplyChan = make(chan int32, *reqsNb)
+		for i := 0; i < N; i++ {
+			go waitRepliesReplica(readers[i], leaderReplyChan)
+		}
+	} else if !*twoLeaders {
 		leaderReplyChan = make(chan int32, *reqsNb)
 		if isRandomLeader {
 			go waitRepliesRandomLeader(readers, N, leaderReplyChan)
@@ -476,10 +483,12 @@ func main() {
 				writers[leader].Flush()
 			}
 			to = time.NewTimer(REQUEST_TIMEOUT)
+			fmt.Println("Sent request", id, "to", leader)
 			for true {
 				select {
 				case e := <-leaderReplyChan:
 					repliedCmdId = e
+					fmt.Println("Received reply for request", repliedCmdId)
 					rcvingTime = time.Now()
 				default:
 				}
@@ -618,19 +627,53 @@ func waitReplies(readers []*bufio.Reader, leader int, n int, done chan int32, ex
 	}
 }
 
+func waitRepliesReplica(reader *bufio.Reader, done chan int32) {
+	var msgType byte
+	var err error
+	reply := new(genericsmrproto.ProposeReplyTS)
+	fmt.Println("Waiting for replies")
+
+	for true {
+		if msgType, err = reader.ReadByte(); err != nil {
+			fmt.Println("Error when reading")
+			continue
+		}
+
+		switch msgType {
+		case genericsmrproto.PROPOSE_REPLY:
+			fmt.Println("Received reply")
+			if err = reply.Unmarshal(reader); err != nil {
+				continue
+			}
+			if reply.OK != 0 {
+				// successful[i]++
+				//done <- &Response{OpId: reply.CommandId, rcvingTime: time.Now()}
+				done <- reply.CommandId
+			}
+			break
+		default:
+			fmt.Println("Unknown message type")
+			break
+		}
+	}
+}
+
 func waitRepliesRandomLeader(readers []*bufio.Reader, n int, done chan int32) {
 	var msgType byte
 	var err error
 	reply := new(genericsmrproto.ProposeReplyTS)
+	fmt.Println("Waiting for replies")
 
 	for true {
 		for i := 0; i < n; i++ {
 			if msgType, err = readers[i].ReadByte(); err != nil {
+				fmt.Println("Error when reading")
 				continue
 			}
 
 			switch msgType {
 			case genericsmrproto.PROPOSE_REPLY:
+				fmt.Println("Received reply")
 				if err = reply.Unmarshal(readers[i]); err != nil {
 					continue
 				}
@@ -641,6 +684,7 @@ func waitRepliesRandomLeader(readers []*bufio.Reader, n int, done chan int32) {
 				}
 				break
 			default:
+				fmt.Println("Unknown message type")
 				break
 			}
 		}

@@ -29,7 +29,7 @@ type ReplicateEntries struct {
     SenderId		   				int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     PrevLogIndex					int32
@@ -47,7 +47,7 @@ const (
 func (t *ReplicateEntries) GetSenderId() int32 { return t.SenderId }
 func (t *ReplicateEntries) GetTerm() int32 { return t.Term }
 func (t *ReplicateEntries) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *ReplicateEntries) GetLogTerm() int32 { return t.LogTerm }
+func (t *ReplicateEntries) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *ReplicateEntries) GetLogLength() int32 { return t.LogLength }
 func (t *ReplicateEntries) GetPrevLogIndex() int32 { return t.PrevLogIndex }
 func (t *ReplicateEntries) GetPrevLogServerId() int32 { return t.PrevLogServerId }
@@ -59,7 +59,7 @@ type ReplicateEntriesReply struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     StartIndex                      int32 // return entries starting from this index
@@ -74,7 +74,7 @@ type ReplicateEntriesReply struct {
 func (t *ReplicateEntriesReply) GetSenderId() int32 { return t.SenderId }
 func (t *ReplicateEntriesReply) GetTerm() int32 { return t.Term }
 func (t *ReplicateEntriesReply) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *ReplicateEntriesReply) GetLogTerm() int32 { return t.LogTerm }
+func (t *ReplicateEntriesReply) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *ReplicateEntriesReply) GetLogLength() int32 { return t.LogLength }
 func (t *ReplicateEntriesReply) GetStartIndex() int32 { return t.StartIndex }
 func (t *ReplicateEntriesReply) GetEntries() []Entry { return t.Entries }
@@ -86,21 +86,21 @@ type RequestVote struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 }
 
 func (t *RequestVote) GetSenderId() int32 { return t.SenderId }
 func (t *RequestVote) GetTerm() int32 { return t.Term }
 func (t *RequestVote) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *RequestVote) GetLogTerm() int32 { return t.LogTerm }
+func (t *RequestVote) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *RequestVote) GetLogLength() int32 { return t.LogLength }
 
 type RequestVoteReply struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      			    int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     VoteGranted						uint8 // bool
@@ -112,7 +112,7 @@ type RequestVoteReply struct {
 func (t *RequestVoteReply) GetSenderId() int32 { return t.SenderId }
 func (t *RequestVoteReply) GetTerm() int32 { return t.Term }
 func (t *RequestVoteReply) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *RequestVoteReply) GetLogTerm() int32 { return t.LogTerm }
+func (t *RequestVoteReply) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *RequestVoteReply) GetLogLength() int32 { return t.LogLength }
 func (t *RequestVoteReply) GetVoteGranted() uint8 { return t.VoteGranted }
 func (t *RequestVoteReply) GetStartIndex() int32 { return t.StartIndex }
@@ -123,7 +123,7 @@ type BenOrBroadcast struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32 // Ben Or index is commit index + 1
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     Iteration						int32
@@ -137,7 +137,7 @@ type BenOrBroadcast struct {
 func (t *BenOrBroadcast) GetSenderId() int32 { return t.SenderId }
 func (t *BenOrBroadcast) GetTerm() int32 { return t.Term }
 func (t *BenOrBroadcast) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *BenOrBroadcast) GetLogTerm() int32 { return t.LogTerm }
+func (t *BenOrBroadcast) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *BenOrBroadcast) GetLogLength() int32 { return t.LogLength }
 func (t *BenOrBroadcast) GetBenOrMsgValid() uint8 { return True }
 func (t *BenOrBroadcast) GetIteration() int32 { return t.Iteration }
@@ -150,7 +150,7 @@ type BenOrBroadcastReply struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     BenOrMsgValid                   uint8 // if this is false, then the replica hasn't started Ben-Or yet (and thus Broadcast Entry is meaningless)
@@ -165,7 +165,7 @@ type BenOrBroadcastReply struct {
 func (t *BenOrBroadcastReply) GetSenderId() int32 { return t.SenderId }
 func (t *BenOrBroadcastReply) GetTerm() int32 { return t.Term }
 func (t *BenOrBroadcastReply) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *BenOrBroadcastReply) GetLogTerm() int32 { return t.LogTerm }
+func (t *BenOrBroadcastReply) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *BenOrBroadcastReply) GetLogLength() int32 { return t.LogLength }
 func (t *BenOrBroadcastReply) GetBenOrMsgValid() uint8 { return t.BenOrMsgValid }
 func (t *BenOrBroadcastReply) GetIteration() int32 { return t.Iteration }
@@ -178,7 +178,7 @@ type BenOrConsensus struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     Iteration						int32
@@ -198,7 +198,7 @@ type BenOrConsensus struct {
 func (t *BenOrConsensus) GetSenderId() int32 { return t.SenderId }
 func (t *BenOrConsensus) GetTerm() int32 { return t.Term }
 func (t *BenOrConsensus) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *BenOrConsensus) GetLogTerm() int32 { return t.LogTerm }
+func (t *BenOrConsensus) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *BenOrConsensus) GetLogLength() int32 { return t.LogLength }
 func (t *BenOrConsensus) GetBenOrMsgValid() uint8 { return True }
 func (t *BenOrConsensus) GetIteration() int32 { return t.Iteration }
@@ -216,7 +216,7 @@ type BenOrConsensusReply struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     BenOrMsgValid                   uint8 // if this is false, then the replica hasn't started Ben-Or yet (and thus Vote is meaningless)
@@ -238,7 +238,7 @@ type BenOrConsensusReply struct {
 func (t *BenOrConsensusReply) GetSenderId() int32 { return t.SenderId }
 func (t *BenOrConsensusReply) GetTerm() int32 { return t.Term }
 func (t *BenOrConsensusReply) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *BenOrConsensusReply) GetLogTerm() int32 { return t.LogTerm }
+func (t *BenOrConsensusReply) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *BenOrConsensusReply) GetLogLength() int32 { return t.LogLength }
 func (t *BenOrConsensusReply) GetBenOrMsgValid() uint8 { return t.BenOrMsgValid }
 func (t *BenOrConsensusReply) GetIteration() int32 { return t.Iteration }
@@ -256,21 +256,28 @@ type GetCommittedData struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
+
+    StartIndex                      int32
+    Entries                         []Entry
+    PQEntries                       []Entry
 }
 
 func (t *GetCommittedData) GetSenderId() int32 { return t.SenderId }
 func (t *GetCommittedData) GetTerm() int32 { return t.Term }
 func (t *GetCommittedData) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *GetCommittedData) GetLogTerm() int32 { return t.LogTerm }
+func (t *GetCommittedData) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *GetCommittedData) GetLogLength() int32 { return t.LogLength }
+func (t *GetCommittedData) GetStartIndex() int32 { return t.StartIndex }
+func (t *GetCommittedData) GetEntries() []Entry { return t.Entries }
+func (t *GetCommittedData) GetPQEntries() []Entry { return t.PQEntries }
 
 type GetCommittedDataReply struct {
     SenderId	   					int32
     Term							int32
     CommitIndex      				int32
-    LogTerm                         int32
+    LeaderTerm                         int32
     LogLength                       int32
 
     StartIndex                      int32
@@ -281,7 +288,7 @@ type GetCommittedDataReply struct {
 func (t *GetCommittedDataReply) GetSenderId() int32 { return t.SenderId }
 func (t *GetCommittedDataReply) GetTerm() int32 { return t.Term }
 func (t *GetCommittedDataReply) GetCommitIndex() int32 { return t.CommitIndex }
-func (t *GetCommittedDataReply) GetLogTerm() int32 { return t.LogTerm }
+func (t *GetCommittedDataReply) GetLeaderTerm() int32 { return t.LeaderTerm }
 func (t *GetCommittedDataReply) GetLogLength() int32 { return t.LogLength }
 func (t *GetCommittedDataReply) GetStartIndex() int32 { return t.StartIndex }
 func (t *GetCommittedDataReply) GetEntries() []Entry { return t.Entries }
@@ -291,7 +298,7 @@ func (t *GetCommittedDataReply) GetPQEntries() []Entry { return t.PQEntries }
 //     SenderId	   					int32
 //     Term							int32
 //     CommitIndex      				int32
-//     LogTerm                         int32
+//     LeaderTerm                         int32
 
 //     PQEntries                       []Entry
 // }
@@ -299,7 +306,7 @@ func (t *GetCommittedDataReply) GetPQEntries() []Entry { return t.PQEntries }
 // func (t *InfoBroadcast) GetSenderId() int32 { return t.SenderId }
 // func (t *InfoBroadcast) GetTerm() int32 { return t.Term }
 // func (t *InfoBroadcast) GetCommitIndex() int32 { return t.CommitIndex }
-// func (t *InfoBroadcast) GetLogTerm() int32 { return t.LogTerm }
+// func (t *InfoBroadcast) GetLeaderTerm() int32 { return t.LeaderTerm }
 // func (t *InfoBroadcast) GetPQEntries() []Entry { return t.PQEntries }
 
 // type InfoBroadcastReply struct {

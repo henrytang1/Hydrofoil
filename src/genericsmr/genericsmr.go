@@ -315,6 +315,7 @@ func (r *Replica) WaitForClientConnections() {
 		}
 		go r.clientListener(conn)
 
+		fmt.Println("Client connected on replica", r.Id, "!")
 		r.OnClientConnect <- true
 	}
 }
@@ -672,7 +673,7 @@ func (r *Replica) SendMsg(peerId int32, code uint8, msg fastrpc.Serializable) {
 		return
 	}
 
-	fmt.Println("Replica", r.Id, "sending message to peerrrrr", peerId)
+	// fmt.Println("Replica", r.Id, "sending message to peerrrrr", peerId)
 	w := r.PeerWriters[peerId]
 	w.WriteByte(code)
 	msg.Marshal(w)

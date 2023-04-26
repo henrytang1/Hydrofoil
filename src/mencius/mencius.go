@@ -579,7 +579,7 @@ func (r *Replica) handleAccept(accept *menciusproto.Accept) {
 		r.updateBlocking(skipStart)
 		if flush {
 			for _, w := range r.PeerWriters {
-				if w != nil {
+				if w.Writer != nil {
 					w.Flush()
 				}
 			}
@@ -592,7 +592,7 @@ func (r *Replica) handleAccept(accept *menciusproto.Accept) {
 func (r *Replica) handleDelayedSkip(delayedSkip *DelayedSkip) {
 	r.skipsWaiting--
 	for _, w := range r.PeerWriters {
-		if w != nil {
+		if w.Writer != nil {
 			w.Flush()
 		}
 	}
