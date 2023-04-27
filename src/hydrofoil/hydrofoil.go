@@ -400,13 +400,28 @@ func newReplicaFullParam(id int, peerAddrList []string, thrifty bool, exec bool,
 }
 
 func newReplicaMoreParam(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
-	// return newReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 1e9, 1e9, 50, 40)
-	return newReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 150, 15, 1e9, 1e9)
+	return newReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 1000, 15, 50, 40)
+}
+
+func newReplicaMoreParamRaft(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
+	return newReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 1000, 15, 1e9, 1e9)
+}
+
+func newReplicaMoreParamBenOr(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool, isProduction bool) *Replica {
+	return newReplicaFullParam(id, peerAddrList, thrifty, exec, dreply, durable, isProduction, 1e9, 1e9, 50, 40)
 }
 
 // Entry point
 func NewReplica(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
 	return newReplicaMoreParam(id, peerAddrList, thrifty, exec, dreply, durable, true)
+}
+
+func NewReplicaRaft(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
+	return newReplicaMoreParamRaft(id, peerAddrList, thrifty, exec, dreply, durable, true)
+}
+
+func NewReplicaBenOr(id int, peerAddrList []string, thrifty bool, exec bool, dreply bool, durable bool) *Replica {
+	return newReplicaMoreParamBenOr(id, peerAddrList, thrifty, exec, dreply, durable, true)
 }
 
 // func (r *Replica) clock() {
@@ -423,7 +438,7 @@ func (r *Replica) getState() (bool, int, int, int) {
 func (r *Replica) executeCommand(i int) {
 	if r.TestingState.IsProduction {
 		val := r.log[i].Data.Execute(r.State)
-		fmt.Println(r.log[i].ServerId, r.Id, i)
+		// fmt.Println(r.log[i].ServerId, r.Id, i)
 		// if r.log[i].ServerId == r.Id {
 			if writer, ok := r.clientWriters[r.log[i].Data.ClientId]; ok {
 				propreply := &genericsmrproto.ProposeReplyTS{
@@ -550,8 +565,10 @@ func (r *Replica) run() {
 
 			case propose := <-r.ProposeChan:
 				//got a Propose from a client
+				// startTime := time.Now()
 				dlog.Printf("Replica %d received proposal with op %d\n", r.Id, propose.Command.Op)
 				r.handlePropose(propose)
+				// fmt.Println("Propose took", time.Since(startTime))
 				//deactivate the new proposals channel to prioritize the handling of protocol messages
 				// if MAX_BATCH > 100 {
 				// 	onOffProposeChan = nil
@@ -559,17 +576,17 @@ func (r *Replica) run() {
 
 			case getState := <-r.GetStateChan:
 				//got a GetState request from a client
-				dlog.Printf("Replica %d received GetState from client\n", r.Id)
+				// dlog.Printf("Replica %d received GetState from client\n", r.Id)
 				r.handleGetState(getState)
 			
 			case slowdown := <-r.SlowdownChan:
 				//got a Slowdown request from a client
-				dlog.Printf("Replica %d received Slowdown from client\n", r.Id)
+				// dlog.Printf("Replica %d received Slowdown from client\n", r.Id)
 				r.handleSlowdown(slowdown)
 			
 			case connect := <-r.ConnectChan:
 				//got a Connect request from a client
-				dlog.Printf("Replica %d received Connect from client\n", r.Id)
+				// dlog.Printf("Replica %d received Connect from client\n", r.Id)
 				r.handleConnect(connect)
 			
 			case disconnect := <-r.DisconnectChan:
@@ -578,90 +595,90 @@ func (r *Replica) run() {
 				r.handleDisconnect(disconnect)
 
 			case replicateEntriesS := <-r.replicateEntriesChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				replicateEntries := replicateEntriesS.(*ReplicateEntries)
 				//got a ReplicateEntries message
 				// dlog.Printf("Replica %d received ReplicateEntries from replica %d, for term %d with log up to idx %d\n", r.Id, replicateEntries.SenderId, replicateEntries.Term, int(replicateEntries.PrevLogIndex) + len(replicateEntries.Entries))
 				r.handleReplicateEntries(replicateEntries)
-				fmt.Println("ReplicateEntries took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("ReplicateEntries took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case replicateEntriesReplyS := <-r.replicateEntriesReplyChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				replicateEntriesReply := replicateEntriesReplyS.(*ReplicateEntriesReply)
 				//got a ReplicateEntriesReply message
 				// dlog.Printf("Replica %d received ReplicateEntriesReply from replica %d, for term %d\n", r.Id, replicateEntriesReply.SenderId, replicateEntriesReply.Term)
 				r.handleReplicateEntriesReply(replicateEntriesReply)
-				fmt.Println("ReplicateEntriesReply took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("ReplicateEntriesReply took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case requestVoteS := <-r.requestVoteChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				requestVote := requestVoteS.(*RequestVote)
 				//got a RequestVote message
 				// dlog.Printf("Replica %d received RequestVote from replica %d, for term %d\n", r.Id, requestVote.SenderId, requestVote.Term)
 				r.handleRequestVote(requestVote)
-				fmt.Println("RequestVote took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("RequestVote took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case requestVoteReplyS := <-r.requestVoteReplyChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				requestVoteReply := requestVoteReplyS.(*RequestVoteReply)
 				//got a RequestVoteReply message
 				// dlog.Printf("Replica %d received RequestVoteReply from replica %d, for term %d\n", r.Id, requestVoteReply.SenderId, requestVoteReply.Term)
 				r.handleRequestVoteReply(requestVoteReply)
-				fmt.Println("RequestVoteReply took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("RequestVoteReply took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case benOrBroadcastS := <-r.benOrBroadcastChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				benOrBroadcast := benOrBroadcastS.(*BenOrBroadcast)
 				//got a BenOrBroadcast message
 				// dlog.Printf("Replica %d received BenOrBroadcast from replica %d, for term %d and index %d\n", r.Id, benOrBroadcast.SenderId, benOrBroadcast.Term, benOrBroadcast.CommitIndex+1)
 				// debug.PrintStack()
 				r.handleBenOrBroadcast(benOrBroadcast)
-				fmt.Println("BenOrBroadcast from replica", benOrBroadcast.SenderId, "for index", benOrBroadcast.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("BenOrBroadcast from replica", benOrBroadcast.SenderId, "for index", benOrBroadcast.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("BenOrBroadcast took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case benOrBroadcastReplyS := <-r.benOrBroadcastReplyChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				benOrBroadcastReply := benOrBroadcastReplyS.(*BenOrBroadcastReply)
 				//got a BenOrBroadcastReply message
 				// dlog.Printf("Replica %d received BenOrBroadcastReply from replica %d, for term %d and index %d and validity %d\n", r.Id, benOrBroadcastReply.SenderId, benOrBroadcastReply.Term, benOrBroadcastReply.CommitIndex+1, benOrBroadcastReply.BenOrMsgValid)
 				r.handleBenOrBroadcast(benOrBroadcastReply)
-				fmt.Println("BenOrBroadcastReply from replica", benOrBroadcastReply.SenderId, "for index", benOrBroadcastReply.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("BenOrBroadcastReply from replica", benOrBroadcastReply.SenderId, "for index", benOrBroadcastReply.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("BenOrBroadcastReply took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case benOrConsensusS := <-r.benOrConsensusChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				benOrConsensus := benOrConsensusS.(*BenOrConsensus)
 				//got a BenOrConsensus message
 				// dlog.Printf("Replica %d received BenOrConsensus from replica %d, for term %d with vote %d\n", r.Id, benOrConsensus.SenderId, benOrConsensus.Term, benOrConsensus.Vote)
 				r.handleBenOrConsensus(benOrConsensus)
-				fmt.Println("BenOrBroadcastConsensus Stage", benOrConsensus.Stage, "from replica", benOrConsensus.SenderId, "for index", benOrConsensus.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("BenOrBroadcastConsensus Stage", benOrConsensus.Stage, "from replica", benOrConsensus.SenderId, "for index", benOrConsensus.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("BenOrConsensus took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case benOrConsensusReplyS := <-r.benOrConsensusReplyChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				benOrConsensusReply := benOrConsensusReplyS.(*BenOrConsensusReply)
 				//got a BenOrConsensusReply message
 				// dlog.Printf("Replica %d received BenOrConsensusReply from replica %d, for term %d with vote %d and validity %d\n", r.Id, benOrConsensusReply.SenderId, benOrConsensusReply.Term, benOrConsensusReply.Vote, benOrConsensusReply.BenOrMsgValid)
 				r.handleBenOrConsensus(benOrConsensusReply)
-				fmt.Println("BenOrBroadcastConsensusReply Stage", benOrConsensusReply.Stage, "from replica", benOrConsensusReply.SenderId, "for index", benOrConsensusReply.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("BenOrBroadcastConsensusReply Stage", benOrConsensusReply.Stage, "from replica", benOrConsensusReply.SenderId, "for index", benOrConsensusReply.CommitIndex+1, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("BenOrConsensusReply took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case getCommittedDataS := <-r.getCommittedDataChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				getCommittedData := getCommittedDataS.(*GetCommittedData)
 				//got a GetCommittedData message
 				// dlog.Printf("Replica %d received GetCommittedData from replica %d\n", r.Id, getCommittedData.SenderId)
 				r.handleGetCommittedData(getCommittedData)
-				fmt.Println("GetCommittedData from replica", getCommittedData.SenderId, "took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("GetCommittedData from replica", getCommittedData.SenderId, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("GetCommittedData took", time.Now().UnixMicro() - startTime, "microseconds")
 			
 			case getCommittedDataReplyS := <-r.getCommittedDataReplyChan:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				getCommittedDataReply := getCommittedDataReplyS.(*GetCommittedDataReply)
 				//got a GetCommittedData message
 				// dlog.Printf("Replica %d received GetCommittedDataReply from replica %d\n", r.Id, getCommittedDataReply.SenderId)
 				r.handleGetCommittedDataReply(getCommittedDataReply)
-				fmt.Println("GetCommittedDataReply from replica", getCommittedDataReply.SenderId, "took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("GetCommittedDataReply from replica", getCommittedDataReply.SenderId, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("GetCommittedDataReply took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			// case infoBroadcastS := <-r.infoBroadcastChan:
@@ -686,26 +703,26 @@ func (r *Replica) run() {
 				// fmt.Println("Heartbeat took", time.Now().UnixMicro() - startTime, "microseconds")
 			
 			case <- r.electionTimer.timer.C:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				r.electionTimer.active = false
 				//got an election timeout
 				r.startElection()
-				fmt.Println("Election took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("Election took", time.Now().UnixMicro() - startTime, "microseconds")
 			
 			case <- r.benOrStartTimer.timer.C:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				r.benOrStartTimer.active = false
 				//got a benOrStartWait timeout
 				r.startBenOrPlus()
-				fmt.Println("BenOrStartWait took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("BenOrStartWait took", time.Now().UnixMicro() - startTime, "microseconds")
 
 			case <- r.benOrResendTimer.timer.C:
-				startTime := time.Now().UnixMicro()
+				// startTime := time.Now().UnixMicro()
 				// dlog.Println("Replica", r.Id, "got a benOrResend timeout")
 				r.benOrResendTimer.active = false
 				//got a benOrResend timeout
 				r.resendBenOrTimer()
-				fmt.Println("BenOrResend took", time.Now().UnixMicro() - startTime, "microseconds")
+				// fmt.Println("BenOrResend took", time.Now().UnixMicro() - startTime, "microseconds")
 			
 			// case <- r.getCommittedTimer.timer.C:
 			// 	//got a getCommitted timeout
@@ -764,7 +781,6 @@ func (r *Replica) handleProposeCommand(cmd state.Command) {
 		Timestamp: time.Now().UnixNano(),
 	}
 	
-	// we only send entries at hearbeats
 	if r.leaderState.isLeader {
 		newLogEntry.Term = int32(r.term)
 		newLogEntry.Index = int32(len(r.log))
@@ -772,16 +788,13 @@ func (r *Replica) handleProposeCommand(cmd state.Command) {
 		r.log = append(r.log, newLogEntry)
 		r.leaderState.repNextIndex[r.Id] = len(r.log)
 		r.leaderState.repMatchIndex[r.Id] = len(r.log) - 1
-		// dlog.Println("I HATE THIS", len(r.log))
 
-		// r.sendHeartbeat()
+		r.sendHeartbeat()
 	} else {
 		r.pq.push(newLogEntry)
 		r.sendGetCommittedData()
 		// dlog.Println(newLogEntry)
 		// dlog.Println(r.pq.extractList())
-		// dlog.Println(r.Id, "ADDED TO PQ", logToString(r.pq.extractList()))
-
 	}
 }
 
@@ -1031,6 +1044,21 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 // 	return
 // }
 
+func (r *Replica) sendOneGetCommittedData(destId int) {
+	// dlog.Println("Replica", r.Id, "sending get committed data", r.commitIndex, len(r.log))
+
+	entries := make([]Entry, 0)
+	if r.commitIndex + 1 < len(r.log) {
+		entries = r.log[r.commitIndex + 1:]
+	}
+
+	args := &GetCommittedData{
+		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LeaderTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),
+		StartIndex: int32(r.commitIndex) + 1, Entries: entries, PQEntries: r.pq.extractList(),
+	}
+	r.SendMsg(int32(destId), r.getCommittedDataRPC, args)
+}
+
 func (r *Replica) sendGetCommittedData() {
 	// dlog.Println("Replica", r.Id, "sending get committed data", r.commitIndex, len(r.log))
 
@@ -1063,6 +1091,8 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 		// fmt.Println("huh", r.Id, r.commitIndex, r.leaderTerm, len(r.log), rpc.CommitIndex, rpc.LeaderTerm, rpc.LogLength, rpc.StartIndex, len(rpc.Entries))
 		if r.commitIndex + 1 >= int(rpc.GetStartIndex()) {
 			r.updateLogFromRPC(rpc)
+		} else {
+			r.sendOneGetCommittedData(int(rpc.GetSenderId()))
 		}
 		moreUpToDate = false
 	} else {

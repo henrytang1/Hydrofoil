@@ -35,6 +35,7 @@ var writes *int = flag.Int("w", 100, "Percentage of updates (writes). Defaults t
 var noLeader *bool = flag.Bool("e", false, "Egalitarian (no leader). Defaults to false.")
 var twoLeaders *bool = flag.Bool("twoLeaders", false, "Two leaders for slowdown tolerance. Defaults to false.")
 var oneLeaderFailure *bool = flag.Bool("oneLeaderFailure", false, "One leader that fails. Defaults to false.")
+var hasALeader *bool = flag.Bool("hasALeader", false, "Has a leader. Defaults to false.")
 
 var fast *bool = flag.Bool("f", false, "Fast Paxos: send message directly to all replicas. Defaults to false.")
 var rounds *int = flag.Int("r", 1, "Split the total number of requests into this many rounds, and do rounds sequentially. Defaults to 1.")
@@ -208,7 +209,6 @@ func main() {
 		}
 		readers[i] = bufio.NewReader(servers[i])
 		writers[i] = bufio.NewWriter(servers[i])
-
 	}
 
 	if *twoLeaders || *oneLeaderFailure {
@@ -228,16 +228,27 @@ func main() {
 
 	successful = make([]int, N)
 	leader := -1
+	oldLeader := -1
 
 	// second leader
 	leader2 := -1
 
 	isRandomLeader := false
+	leaderFailure := false
+	hasLeader := false
 
 	// views for two leaders
 	var views []*View
 
-	if *noLeader == false {
+	if *oneLeaderFailure {
+		// fmt.Println("HUHUHUHUHUH")
+		leaderFailure = true
+		if *hasALeader {
+			hasLeader = true
+		} else {
+			hasLeader = false
+		}
+	} else if *noLeader == false {
 
 		if *twoLeaders == false {
 			reply := new(masterproto.GetLeaderReply)
@@ -313,6 +324,8 @@ func main() {
 		}
 	}
 
+	stage := 0
+
 	latencies = make([]int64, 0, *reqsNb)
 	readlatencies = make([]int64, 0, *reqsNb)
 	writelatencies = make([]int64, 0, *reqsNb)
@@ -329,6 +342,29 @@ func main() {
 
 	var pilotErr, pilotErr1 error
 	var lastGVSent0, lastGVSent1 time.Time
+
+	startTime := time.Now()
+
+	go func(){
+		interval_timer := time.NewTimer(0 * time.Second)
+		<- interval_timer.C
+		idx := 1
+		for {
+			interval_timer.Reset(startTime.Add(time.Duration(idx) * tput_interval_in_sec).Sub(time.Now()))
+			<- interval_timer.C
+			// if currentTime.Sub(lastThroughputTime) >= tput_interval_in_sec {
+			p := DataPoint{elapse: time.Duration(idx) * tput_interval_in_sec, reqsCount: reqsCount, t: time.Now()}
+			throughputs = append(throughputs, p)
+
+			// if *verbose && readings != nil {
+			// 	readings <- &p
+			// }
+
+			// lastThroughputTime = currentTime
+			idx++
+		}
+	}()
+
 	for i := 0; i < *reqsNb; i++ {
 
 		id := int32(i)
@@ -480,36 +516,179 @@ func main() {
 				}
 			} // end of copilot
 		} else {
-			if isRandomLeader { /*epaxos with random leader*/
+			if leaderFailure {
+				// fmt.Println("Entered")
+				if i == 0 {
+					if hasLeader {
+						for {
+							// fmt.Println("Sent", i, "requests")
+							getStateArgs := genericsmrproto.GetState{}
+			
+							for j := 0; j < N; j++ {
+								writers[j].WriteByte(genericsmrproto.GET_STATE)
+								getStateArgs.Marshal(writers[j])
+								writers[j].Flush()
+							}
+
+							numResp := 0
+							for {
+								select {
+								case e := <-configReplyChan:
+									numResp++
+									// fmt.Println("Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
+									if e.Type == genericsmrproto.GET_STATE_REPLY && e.Data == 1 {
+										oldLeader = e.ReplicaId
+									}
+								case <-leaderReplyChan:
+								}
+			
+								if numResp == N {
+									break
+								}
+							}
+							if oldLeader != -1 {
+								// fmt.Println("Found leader", leader)
+								break
+							} else {
+								// fmt.Println("No leader found, retrying...")
+								time.Sleep(40 * time.Millisecond)
+							}
+						}
+					} else { // randomly choose a leader (in this case 0)
+						oldLeader = 0
+					}
+				}
+
+				// fmt.Println(time.Now().Sub(startTime))
+				if time.Now().Sub(startTime) > 3000 * time.Millisecond && stage == 0 {
+					stage = 1
+					// fmt.Println("Leader failure")
+
+					// fmt.Println("Sent", leader, "requests")
+					getDisconnectArgs := genericsmrproto.Disconnect{}
+
+					writers[oldLeader].WriteByte(genericsmrproto.DISCONNECT)
+					getDisconnectArgs.Marshal(writers[oldLeader])
+					writers[oldLeader].Flush()
+
+					for {
+						disconnected := false
+						select {
+						case e := <-configReplyChan:
+							// fmt.Println("Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
+							if e.Type == genericsmrproto.DISCONNECT_REPLY && e.Data == 1 {
+								disconnected = true
+							}
+						case <-leaderReplyChan:
+						}
+						if disconnected {
+							break
+						}
+					}
+
+					// leader = -1
+					// for {
+					// 	// fmt.Println("Sent", i, "requests")
+					// 	getStateArgs := genericsmrproto.GetState{}
+		
+					// 	for j := 0; j < N; j++ {
+					// 		if j == oldLeader {
+					// 			continue
+					// 		}
+					// 		writers[j].WriteByte(genericsmrproto.GET_STATE)
+					// 		getStateArgs.Marshal(writers[j])
+					// 		writers[j].Flush()
+					// 	}
+
+					// 	numResp := 0
+					// 	for {
+					// 		select {
+					// 		case e := <-configReplyChan:
+					// 			numResp++
+					// 			// fmt.Println("Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
+					// 			if e.Type == genericsmrproto.GET_STATE_REPLY && e.Data == 1 {
+					// 				leader = e.ReplicaId
+					// 			}
+					// 		case <-leaderReplyChan:
+					// 		}
+		
+					// 		if numResp == N-1 {
+					// 			break
+					// 		}
+					// 	}
+					// 	if leader != -1 {
+					// 		// fmt.Println("Found leader", leader, "after failure")
+					// 		break
+					// 	} else {
+					// 		// fmt.Println("No leader found, retrying...")
+					// 		time.Sleep(50 * time.Millisecond)
+					// 	}
+					// }
+				}
+
+				if time.Now().Sub(startTime) > 5000 * time.Millisecond && stage == 1 {
+					stage = 2
+					// fmt.Println("Leader reconnect")
+
+					// fmt.Println("Sent", oldLeader, "requests")
+					getConnectArgs := genericsmrproto.Connect{}
+
+					writers[oldLeader].WriteByte(genericsmrproto.CONNECT)
+					getConnectArgs.Marshal(writers[oldLeader])
+					writers[oldLeader].Flush()
+
+					for {
+						connected := false
+						select {
+						case e := <-configReplyChan:
+							// fmt.Println("asdf Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
+							if e.Type == genericsmrproto.CONNECT_REPLY && e.Data == 1 {
+								connected = true
+							}
+						case <-leaderReplyChan:
+						}
+						if connected {
+							break
+						}
+					}
+				}
+
+				leader = (leader + 1) % N
+				if leader == oldLeader {
+					leader = (leader + 1) % N
+				}
+
+				// dlog.Println(oldLeader, stage, startTime)
+			} else if isRandomLeader { /*epaxos with random leader*/
 				leader = i % N
 			} else if *noLeader == false { /*MultiPaxos*/
 				leader = 0
 			}
 
-			if i % 1000 == 0 {
-				fmt.Println("Sent", i, "requests")
-				getStateArgs := genericsmrproto.GetState{}
+			// if i % 1000 == 0 {
+			// 	fmt.Println("Sent", i, "requests")
+			// 	getStateArgs := genericsmrproto.GetState{}
 
-				for j := 0; j < N; j++ {
-					writers[j].WriteByte(genericsmrproto.GET_STATE)
-					getStateArgs.Marshal(writers[j])
-					writers[j].Flush()
-				}
+			// 	for j := 0; j < N; j++ {
+			// 		writers[j].WriteByte(genericsmrproto.GET_STATE)
+			// 		getStateArgs.Marshal(writers[j])
+			// 		writers[j].Flush()
+			// 	}
 
-				j := 0
-				for {
-					select {
-					case e := <-configReplyChan:
-						j++
-						fmt.Println("Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
-					default:
-					}
+			// 	j := 0
+			// 	for {
+			// 		select {
+			// 		case e := <-configReplyChan:
+			// 			j++
+			// 			fmt.Println("Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
+			// 		case <-leaderReplyChan:
+			// 		}
 
-					if j == N {
-						break
-					}
-				}
-			}
+			// 		if j == N {
+			// 			break
+			// 		}
+			// 	}
+			// }
 
 			if leader >= 0 {
 				writers[leader].WriteByte(genericsmrproto.PROPOSE)
@@ -517,13 +696,14 @@ func main() {
 				writers[leader].Flush()
 			}
 			to = time.NewTimer(REQUEST_TIMEOUT)
-			fmt.Println("Sent request", id, "to", leader)
+			// fmt.Println("Sent request", id, "to", leader)
 			for true {
 				select {
 				case e := <-leaderReplyChan:
 					repliedCmdId = e
 					fmt.Println("Received reply for request", repliedCmdId)
 					rcvingTime = time.Now()
+				case <-configReplyChan:
 				default:
 				}
 
@@ -556,18 +736,20 @@ func main() {
 		}
 
 		currentTime := time.Now()
-		// Throughput every interval
-		if currentTime.Sub(lastThroughputTime) >= tput_interval_in_sec {
-			p := DataPoint{elapse: currentTime.Sub(before_total), reqsCount: reqsCount, t: currentTime}
-			throughputs = append(throughputs, p)
+		// // Throughput every interval
+		// if currentTime.Sub(lastThroughputTime) >= tput_interval_in_sec {
+		// 	p := DataPoint{elapse: currentTime.Sub(before_total), reqsCount: reqsCount, t: currentTime}
+		// 	throughputs = append(throughputs, p)
 
-			if *verbose && readings != nil {
-				readings <- &p
-			}
+		// 	if *verbose && readings != nil {
+		// 		readings <- &p
+		// 	}
 
-			lastThroughputTime = currentTime
+		// 	lastThroughputTime = currentTime
 
-		}
+		// }
+
+		dlog.Println(tput_interval_in_sec, lastThroughputTime)
 
 		if *maxRuntime >= 0 && currentTime.Sub(before_total) > time.Duration(*maxRuntime)*time.Second {
 			break
@@ -674,7 +856,7 @@ func waitRepliesReplica(reader *bufio.Reader, repId int, done chan int32, config
 
 		switch msgType {
 		case genericsmrproto.PROPOSE_REPLY:
-			fmt.Println("Received reply")
+			// fmt.Println("Received reply")
 			reply := new(genericsmrproto.ProposeReplyTS)
 			if err = reply.Unmarshal(reader); err != nil {
 				continue
@@ -687,13 +869,13 @@ func waitRepliesReplica(reader *bufio.Reader, repId int, done chan int32, config
 			break
 
 		case genericsmrproto.GET_STATE_REPLY:
-			fmt.Println("Received reply before", repId)
+			// fmt.Println("Received reply before", repId)
 			gst := new(genericsmrproto.GetStateReply)
 			if err = gst.Unmarshal(reader); err != nil {
 				continue
 			}
 			configDone <- ReplyMsg{msgType, repId, int32(gst.IsLeader)}
-			fmt.Println("Received reply after", repId)
+			// fmt.Println("Received reply after", repId)
 			break
 
 		case genericsmrproto.SLOWDOWN_REPLY:
@@ -742,7 +924,7 @@ func waitRepliesRandomLeader(readers []*bufio.Reader, n int, done chan int32) {
 
 			switch msgType {
 			case genericsmrproto.PROPOSE_REPLY:
-				fmt.Println("Received reply")
+				// fmt.Println("Received reply")
 				if err = reply.Unmarshal(readers[i]); err != nil {
 					continue
 				}
@@ -919,7 +1101,7 @@ func processAndPrintThroughputs(throughputs []DataPoint) (error, string) {
 				float64(p.reqsCount-throughputs[i-1].reqsCount)*float64(time.Second)/
 					float64(p.elapse-throughputs[i-1].elapse)), 10)
 		}
-		line := fmt.Sprintf("%.1f\t%d\t%v\t%v\t%.1f\n", float64(p.elapse)/float64(time.Second), p.reqsCount, overallTput, instTput, float64(p.t.UnixNano())*float64(time.Nanosecond)/float64(time.Second))
+		line := fmt.Sprintf("%.2f\t%d\t%v\t%v\t%.1f\n", float64(p.elapse)/float64(time.Second), p.reqsCount, overallTput, instTput, float64(p.t.UnixNano())*float64(time.Nanosecond)/float64(time.Second))
 		_, err = f.WriteString(line)
 		fmt.Printf(line)
 	}

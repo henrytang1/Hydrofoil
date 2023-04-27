@@ -525,7 +525,7 @@ func (r *Replica) replicaListener(rid int, reader LockedReader) {
 					// r.TestingState.IsConnected.Mu.Lock()
 					if !r.Connected[int(t.GetSenderId())] {
 						// r.TestingState.IsConnected.Mu.Unlock()
-						fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
+						// fmt.Println("Replica", r.Id, "received message from replica", rid, "of type", msgType, "but replica", t.GetSenderId(), "is not connected");
 						continue
 					} else {
 						// r.TestingState.IsConnected.Mu.Unlock()
@@ -667,7 +667,7 @@ func (r *Replica) clientListener(conn net.Conn) {
 			break
 
 		case genericsmrproto.GET_STATE:
-			fmt.Println("Replica %d: GET_STATE received", r.Id)
+			// fmt.Println("Replica %d: GET_STATE received", r.Id)
 			gst := new(genericsmrproto.GetState)
 			if err = gst.Unmarshal(reader); err != nil {
 				break
@@ -811,7 +811,7 @@ func (r *Replica) ReplyGetView(reply *genericsmrproto.GetViewReply, w *bufio.Wri
 }
 
 func (r *Replica) ReplyGetState(reply *genericsmrproto.GetStateReply, w *bufio.Writer) {
-	fmt.Println("Replying get state")
+	// fmt.Println("Replying get state")
 	w.WriteByte(genericsmrproto.GET_STATE_REPLY)
 	reply.Marshal(w)
 	w.Flush()

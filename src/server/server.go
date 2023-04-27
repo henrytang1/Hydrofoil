@@ -32,6 +32,9 @@ var doEpaxos *bool = flag.Bool("e", false, "Use EPaxos as the replication protoc
 var doCopilot *bool = flag.Bool("copilot", false, "Use Copilot as the replication protocol. Defaults to false.")
 var doLatentCopilot *bool = flag.Bool("latentcopilot", false, "Use Latent Copilot as the replication protocol. Defaults to false.")
 var doHydrofoil *bool = flag.Bool("hydrofoil", false, "Use Hydrofoil as the replication protocol. Defaults to false.")
+var doBenOr *bool = flag.Bool("benor", false, "Use BenOr+ as the replication protocol. Defaults to false.")
+var doRaft *bool = flag.Bool("raft", false, "Use Raft+ as the replication protocol. Defaults to false.")
+
 var procs *int = flag.Int("p", 2, "GOMAXPROCS. Defaults to 2")
 var cpuprofile *string = flag.String("cpuprofile", "", "write cpu profile to file")
 var thrifty *bool = flag.Bool("thrifty", false, "Use only as many messages as strictly required for inter-replica communication.")
@@ -85,6 +88,14 @@ func main() {
 	} else if *doHydrofoil {
 		log.Println("Starting Hydrofoil replica...")
 		rep := hydrofoil.NewReplica(replicaId, nodeList, *thrifty, *exec, *dreply, *durable)
+		rpc.Register(rep)
+	} else if *doBenOr {
+		log.Println("Starting BenOr+ replica...")
+		rep := hydrofoil.NewReplicaBenOr(replicaId, nodeList, *thrifty, *exec, *dreply, *durable)
+		rpc.Register(rep)
+	} else if *doRaft {
+		log.Println("Starting Raft+ replica...")
+		rep := hydrofoil.NewReplicaRaft(replicaId, nodeList, *thrifty, *exec, *dreply, *durable)
 		rpc.Register(rep)
 	} else {
 		log.Println("Starting classic Paxos replica...")

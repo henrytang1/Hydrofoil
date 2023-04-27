@@ -1,14 +1,13 @@
 package hydrofoil
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
 	"time"
 )
 
 func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
-	startTime := time.Now().UnixMicro()
+	// startTime := time.Now().UnixMicro()
 	r.handleIncomingTerm(rpc)
 	if r.term > int(rpc.Term) || r.isLogMoreUpToDate(rpc) == MoreUpToDate {
 		if r.term == int(rpc.Term) {
@@ -47,7 +46,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 			setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
 		}
 
-		fmt.Println("Replica", r.Id, "type 1", time.Now().UnixMicro() - startTime)
+		// fmt.Println("Replica", r.Id, "type 1", time.Now().UnixMicro() - startTime)
 		return
 	}
 
@@ -63,15 +62,15 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
 		setTimer(r.benOrStartTimer, time.Duration(timeout)*time.Millisecond)
 	}
-	fmt.Println("Replica", r.Id, "type 2", time.Now().UnixMicro() - startTime)
+	// fmt.Println("Replica", r.Id, "type 2", time.Now().UnixMicro() - startTime)
 
-	startTime = time.Now().UnixMicro()
+	// startTime = time.Now().UnixMicro()
 
 	// dlog.Println("Replica", r.Id, "lastHeardFromLeader", time.Now(), "diff is", time.Now().Sub(r.lastHeardFromLeader))
 	r.lastHeardFromLeader = time.Now()
 
 	// fmt.Println("Replica", r.Id, "type 2.1", time.Now().UnixMicro() - startTime)
-	startTime = time.Now().UnixMicro()
+	// startTime = time.Now().UnixMicro()
 
 	if int(rpc.PrevLogIndex) >= len(r.log) || 
 		(r.log[rpc.PrevLogIndex].ServerId != rpc.PrevLogServerId && r.log[rpc.PrevLogIndex].Timestamp != rpc.PrevLogTimestamp) {
@@ -91,12 +90,12 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		// dlog.Println("Replica", r.Id, "sending to", rpc.SenderId, "ReplicateEntriesReply", "BBBB")
 
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
-		fmt.Println("Replica", r.Id, "type 2.5", time.Now().UnixMicro() - startTime)
+		// fmt.Println("Replica", r.Id, "type 2.5", time.Now().UnixMicro() - startTime)
 		return
 	}
 
-	fmt.Println("Replica", r.Id, "type 2.1", time.Now().UnixMicro() - startTime)
-	startTime = time.Now().UnixMicro()
+	// fmt.Println("Replica", r.Id, "type 2.1", time.Now().UnixMicro() - startTime)
+	// startTime = time.Now().UnixMicro()
 
 	if r.leaderState.isLeader {
 		log.Fatal("Should not be leader when receiving a ReplicateEntries RPC, and have a greater term!")
@@ -106,8 +105,8 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 	// dlog.Println("Replica", r.Id, "is accepting entries from", rpc.SenderId, "before log", logToString(r.log))
 
-	fmt.Println("Replica", r.Id, "type 3", time.Now().UnixMicro() - startTime)
-	startTime = time.Now().UnixMicro()
+	// fmt.Println("Replica", r.Id, "type 3", time.Now().UnixMicro() - startTime)
+	// startTime = time.Now().UnixMicro()
 
 	var potentialEntries []Entry
 	shouldReplaceLog, startReplacementIdx := r.shouldLogBeReplaced(rpc, max(r.commitIndex, int(rpc.PrevLogIndex)) + 1)
@@ -148,8 +147,8 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 	// 	dlog.Println("Replica", r.Id, "set biased coin to true")
 	// }
 
-	fmt.Println("Replica", r.Id, "type 4", time.Now().UnixMicro() - startTime)
-	startTime = time.Now().UnixMicro()
+	// fmt.Println("Replica", r.Id, "type 4", time.Now().UnixMicro() - startTime)
+	// startTime = time.Now().UnixMicro()
 
 	entries := make([]Entry, 0)
 	if rpc.CommitIndex + 1 < int32(len(r.log)) {
@@ -180,7 +179,7 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		r.SendMsg(rpc.SenderId, r.replicateEntriesReplyRPC, args)
 	}
 
-	fmt.Println("Replica", r.Id, "type 5", time.Now().UnixMicro() - startTime)
+	// fmt.Println("Replica", r.Id, "type 5", time.Now().UnixMicro() - startTime)
 }
 
 

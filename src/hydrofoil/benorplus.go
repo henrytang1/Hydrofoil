@@ -1,7 +1,6 @@
 package hydrofoil
 
 import (
-	"fmt"
 	"log"
 	"math/rand"
 	"sort"
@@ -26,7 +25,7 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 	// }
 
 	// dlog.Println("Replica", r.Id, "starting ben or plus for iteration", iteration, "diff is", time.Now().Sub(r.lastHeardFromLeader))
-	startTime := time.Now().UnixMicro()
+	// startTime := time.Now().UnixMicro()
 
 	var broadcastEntry Entry
 	benOrIndex := r.commitIndex + 1
@@ -83,12 +82,12 @@ func (r *Replica) startNewBenOrPlusIteration(iteration int, benOrBroadcastMsg []
 
 		biasedCoin: false,
 	}
-	fmt.Println("Replica", r.Id, "type1", time.Now().UnixMicro() - startTime)
+	// fmt.Println("Replica", r.Id, "type1", time.Now().UnixMicro() - startTime)
 	r.startBenOrBroadcast()
 }
 
 func (r *Replica) startBenOrBroadcast() {
-	startTime := time.Now().UnixMicro()
+	// startTime := time.Now().UnixMicro()
 	entries := make([]Entry, 0)
 	if r.commitIndex + 1 < len(r.log) {
 		entries = r.log[r.commitIndex + 1:]
@@ -104,15 +103,15 @@ func (r *Replica) startBenOrBroadcast() {
 	timeout := rand.Intn(r.benOrResendTimeout/2) + r.benOrResendTimeout/2
 	setTimer(r.benOrResendTimer, time.Duration(timeout) * time.Millisecond)
 
-	fmt.Println("Replica", r.Id, "type2", time.Now().UnixMicro() - startTime)
-	startTime = time.Now().UnixMicro()
+	// fmt.Println("Replica", r.Id, "type2", time.Now().UnixMicro() - startTime)
+	// startTime = time.Now().UnixMicro()
 
 	for i := 0; i < r.N; i++ {
 		if int32(i) != r.Id {
 			r.SendMsg(int32(i), r.benOrBroadcastRPC, args)
 		}
 	}
-	fmt.Println("Replica", r.Id, "type3", time.Now().UnixMicro() - startTime)
+	// fmt.Println("Replica", r.Id, "type3", time.Now().UnixMicro() - startTime)
 }
 
 func (r *Replica) updateLogIfPossible(rpc ReplyMsg) bool {
@@ -157,7 +156,7 @@ func (r *Replica) handleBenOrBroadcast(rpc BenOrBroadcastMsg) {
 
 	if !r.updateLogIfPossible(rpc) {
 		// dlog.Println("Replica", r.Id, "is out of date, waiting for BenOrPlus to update log")
-		r.sendGetCommittedData()
+		r.sendOneGetCommittedData(int(rpc.GetSenderId()))
 		return
 	}
 
@@ -312,7 +311,7 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 	r.handleIncomingTerm(rpc)
 
 	if !r.updateLogIfPossible(rpc) {
-		r.sendGetCommittedData()
+		r.sendOneGetCommittedData(int(rpc.GetSenderId()))
 		return
 	}
 
@@ -527,7 +526,7 @@ func (r *Replica) handleBenOrConsensus(rpc BenOrConsensusMsg) {
 							r.startNewBenOrPlusIteration(r.benOrState.benOrIteration + 1, make([]Entry, 0), make([]bool, r.N))
 						} else if voteCount[1] > r.N/2 {
 							// commit entry
-							fmt.Println("Iteration: ", r.benOrState.benOrIteration)
+							// fmt.Println("Iteration: ", r.benOrState.benOrIteration)
 
 							oldCommitIndex := r.commitIndex
 							newCommittedEntry := r.benOrState.benOrMajEntry
