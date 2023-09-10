@@ -28,8 +28,6 @@ type BenOrConsensus = hydrofoilproto.BenOrConsensus
 type BenOrConsensusReply = hydrofoilproto.BenOrConsensusReply
 type GetCommittedData = hydrofoilproto.GetCommittedData
 type GetCommittedDataReply = hydrofoilproto.GetCommittedDataReply
-// type InfoBroadcast = randomizedpaxosproto.InfoBroadcast
-// type InfoBroadcastReply = randomizedpaxosproto.InfoBroadcastReply
 
 type RPC interface {
 	GetSenderId() int32
@@ -187,10 +185,6 @@ type Replica struct {
 	benOrState			BenOrState
 	candidateState			CandidateState
 
-	// proposals			map[uint32]*genericsmr.Propose
-
-	// recentlySentGetCommit		bool // true if we've recently sent out a GetCommittedData request
-
 	electionTimeout         	int
 	heartbeatTimeout         	int
 	benOrStartTimeout		int
@@ -211,12 +205,6 @@ type Instance struct {
 	ballot int32
 }
 
-// type Pair struct {
-// 	Idx  int
-// 	Term int
-// }
-
-// UNSURE IF WE EVER NEED THIS ACTUALLY
 //append a log entry to stable storage
 func (r *Replica) recordInstanceMetadata(inst *Instance) {
 	if !r.Durable {
@@ -424,13 +412,6 @@ func NewReplicaBenOr(id int, peerAddrList []string, thrifty bool, exec bool, dre
 	return newReplicaMoreParamBenOr(id, peerAddrList, thrifty, exec, dreply, durable, true)
 }
 
-// func (r *Replica) clock() {
-// 	for !r.Shutdown {
-// 		time.Sleep(BATCH_INTERVAL)
-// 		clockChan <- true
-// 	}
-// }
-
 func (r *Replica) getState() (bool, int, int, int) {
 	return r.leaderState.isLeader, r.term, r.leaderTerm, r.commitIndex
 }
@@ -445,30 +426,10 @@ func (r *Replica) executeCommand(i int) {
 					OK: True,
 					CommandId: r.log[i].Data.OpId,
 					Value: val,
-					Timestamp: r.log[i].Timestamp} // TODO: check if timestamp is correct
+					Timestamp: r.log[i].Timestamp}
 				r.ReplyProposeTS(propreply, writer)
 			}
-		// }
-		// else {
-		// 	// fmt.Println(r.log[i].ServerId, r.Id, r.inLog.isCommitted(r.log[i]))
-		// 	if (r.log[i].ServerId == r.Id) { 
-		// 		propreply := &genericsmrproto.ProposeReplyTS{
-		// 			OK: True,
-		// 			CommandId: r.log[i].Data.OpId,
-		// 			Value: val,
-		// 			Timestamp: r.log[i].Timestamp} // TODO: check if timestamp is correct
-		// 		r.ReplyProposeTS(propreply, r.proposals[r.log[i].Data.ClientId].Reply)
-		// 		// fmt.Println("executeCommand", i, "with opid", r.log[i].Data.OpId)
-		// 	}
-		// }
-		// if !r.inLog.isCommitted(r.log[i]) {
-			// r.inLog.commit(r.log[i])
-		// }
-		// } else if !ok {
-		// 	fmt.Println("Client", r.log[i].Data.ClientId, "not connected")
-		// }
 	} else {
-		// dlog.Println("Replica", r.Id, "executing command", i, "with opid", r.log[i].Data.OpId, "START")
 		r.TestingState.ResponseChan <- genericsmr.RepCommand{int(r.Id), r.log[i].Data}
 		// dlog.Println("Replica", r.Id, "executing command", i, "with opid", r.log[i].Data.OpId, "END")
 	}
@@ -516,12 +477,6 @@ func (r *Replica) run() {
 	
 	timeout = rand.Intn(r.benOrStartTimeout/2) + r.benOrStartTimeout/2
 	setTimer(r.benOrStartTimer, time.Duration(timeout) * time.Millisecond)
-
-	// dlog.Println("Starting replica", r.Id)
-
-	// if r.Id == 0 {
-	// 	r.becomeLeader()
-	// }
 
 	// idx := 0
 	// times := make([]int64, 10)
@@ -680,20 +635,6 @@ func (r *Replica) run() {
 				r.handleGetCommittedDataReply(getCommittedDataReply)
 				// fmt.Println("GetCommittedDataReply from replica", getCommittedDataReply.SenderId, "took", time.Now().UnixMicro() - startTime, "microseconds")
 				// fmt.Println("GetCommittedDataReply took", time.Now().UnixMicro() - startTime, "microseconds")
-
-			// case infoBroadcastS := <-r.infoBroadcastChan:
-			// 	infoBroadcast := infoBroadcastS.(*InfoBroadcast)
-			// 	//got a InfoBroadcast message
-			// 	dlog.Printf("Received InfoBroadcast from replica %d, for instance %d\n", infoBroadcast.SenderId, infoBroadcast.Term)
-			// 	r.handleInfoBroadcast(infoBroadcast)
-			// 	break
-
-			// case infoBroadcastReplyS := <-r.infoBroadcastReplyChan:
-			// 	infoBroadcastReply := infoBroadcastReplyS.(*InfoBroadcastReply)
-			// 	//got a InfoBroadcastReply message
-			// 	dlog.Printf("Received InfoBroadcastReply from replica %d\n", infoBroadcastReply.Term)
-			// 	r.handleInfoBroadcastReply(infoBroadcastReply)
-			// 	break
 			
 			case <- r.heartbeatTimer.timer.C:
 				// startTime := time.Now().UnixMicro()
@@ -723,22 +664,7 @@ func (r *Replica) run() {
 				//got a benOrResend timeout
 				r.resendBenOrTimer()
 				// fmt.Println("BenOrResend took", time.Now().UnixMicro() - startTime, "microseconds")
-			
-			// case <- r.getCommittedTimer.timer.C:
-			// 	//got a getCommitted timeout
-			// 	r.clearGetCommittedTimer()
 		}
-		// times[idx % 10] = time.Now().UnixMicro() - timesss
-		// if idx % 10 == 9 {
-		// 	var sum int64 = 0
-		// 	for i := 0; i < 10; i++ {
-		// 		sum += times[i]
-		// 	}
-		// 	average := sum / 10
-		// 	// dlog.Println("Replica", r.Id, "average time for 10 iterations:", average)
-		// 	// fmt.Println("Replica", r.Id, "average time for 10 iterations:", average)
-		// }
-		// idx++
 	}
 
 	// dlog.Println("Replica", r.Id, "exiting main loop")
@@ -802,23 +728,6 @@ func (r *Replica) handlePropose(propose *genericsmr.Propose) {
 	// r.proposals[propose.Command.ClientId] = propose
 	r.handleProposeCommand(propose.Command)
 }
-
-// func (r *Replica) getUpToDateData () {
-// 	if r.getCommittedTimer.active {
-// 		return
-// 	}
-// 	timeout := rand.Intn(r.getCommittedTimeout/2) + r.getCommittedTimeout/2
-// 	setTimer(r.getCommittedTimer, time.Duration(timeout)*time.Millisecond)
-
-// 	args := &GetCommittedData{
-// 		SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LeaderTerm: int32(r.LeaderTerm), LogLength: int32(len(r.log)),
-// 	}
-// 	for i := 0; i < r.N; i++ {
-// 		if int32(i) != r.Id {
-// 			r.SendMsg(int32(i), r.getCommittedDataRPC, args)
-// 		}
-// 	}
-// }
 
 func (r *Replica) handleGetState(getState *genericsmr.GetState) {
 	args := &genericsmrproto.GetStateReply{
@@ -944,14 +853,6 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 	// dlog.Println("Replica", r.Id, "pq values5", logToString(r.pq.extractList()))
 
 	if r.leaderState.isLeader {
-		// the following case actually shouldn't be an error because it's possible in a unique case
-		// ex: consider 5 replicas. Replica 0 is the leader, and it replicates 5 entries on all replicas, but only replica 1 knows the new commitIndex before replica 0 goes down.
-		// Now, replica 2 is the new leader (receiving votes from replicas 3, and 4), and sends a replicate entries to replica 1.
-		// Replica 1 has a higher commitIndex!
-		// if rpc.GetStartIndex() + int32(len(rpc.GetEntries())) > rpc.GetCommitIndex() {
-		// 	log.Fatal("Leader", r.Id, "got an RPC with a commit index that is less than the last entry in the RPC from", rpc.GetSenderId())
-		// }
-
 		for !r.pq.isEmpty() {
 			entry := r.pq.pop()
 			entry.Term = int32(r.term)
@@ -982,67 +883,6 @@ func (r *Replica) updateLogFromRPC (rpc ReplyMsg) bool {
 	// fmt.Println("updateLogFromRPC took", time.Now().UnixMicro() - timeStart, "microseconds")
 	return shouldReplaceLog
 }
-
-// func (r *Replica) broadcastInfo() {
-// 	for i := 0; i < r.N; i++ {
-// 		if int32(i) != r.Id {
-// 			args := &InfoBroadcast{
-// 				SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LeaderTerm: int32(r.LeaderTerm), PQEntries: r.pq.extractList()}
-
-// 			r.SendMsg(int32(i), r.infoBroadcastRPC, args)
-// 		}
-// 	}
-// }
-
-// func (r *Replica) handleInfoBroadcast(rpc *InfoBroadcast) {
-// 	if r.term < int(rpc.Term) {
-// 		r.term = int(rpc.Term)
-// 		if r.leaderState.isLeader {
-// 			r.leaderState = LeaderState{
-// 				isLeader: false,
-// 				repNextIndex: make([]int, r.N),
-// 				repMatchIndex: make([]int, r.N),
-// 				lastRepEntriesTimestamp: 0,
-// 			}
-// 			clearTimer(r.heartbeatTimer)
-// 		}
-// 		if r.candidateState.isCandidate {
-// 			r.candidateState = CandidateState{
-// 				isCandidate: false,
-// 				votesReceived: 0,
-// 			}
-// 		}
-// 	}
-
-// 	for _, v := range(rpc.PQEntries) {
-// 		if !r.seenBefore(v) {
-// 			if r.leaderState.isLeader {
-// 				r.inLog.add(v)
-// 				r.log = append(r.log, v)
-// 			} else {
-// 				r.pq.push(v)
-// 			}
-// 		}
-// 	}
-
-
-// 	r.handleIncomingRPCTerm(int(rpc.Term))
-
-// 	uniq := UniqueCommand{senderId: rpc.ClientReq.SenderId, time: rpc.ClientReq.Timestamp}
-// 	r.inLog.add(uniq)
-
-// 	r.addNewEntry(rpc.ClientReq)
-
-// 	args := &InfoBroadcastReply{
-// 		SenderId: r.Id, Term: int32(r.term)}
-// 	r.SendMsg(rpc.SenderId, r.infoBroadcastRPC, args)
-// 	return
-// }
-
-// func (r *Replica) handleInfoBroadcastReply (rpc *InfoBroadcastReply) {
-// 	r.handleIncomingRPCTerm(int(rpc.Term))
-// 	return
-// }
 
 func (r *Replica) sendOneGetCommittedData(destId int) {
 	// dlog.Println("Replica", r.Id, "sending get committed data", r.commitIndex, len(r.log))
@@ -1135,10 +975,6 @@ func (r *Replica) handleGetCommittedData(rpc *GetCommittedData) {
 		// dlog.Println("Replica", r.Id, "sending get committed data reply to", rpc.SenderId, "with", r.commitIndex, len(r.log))
 		r.SendMsg(rpc.SenderId, r.getCommittedDataReplyRPC, args)
 	}
-
-	// if r.leaderState.isLeader {
-	// 	r.sendHeartbeat()
-	// }
 }
 
 func (r *Replica) handleGetCommittedDataReply(rpc *GetCommittedDataReply) {
@@ -1172,81 +1008,3 @@ func (r *Replica) handleGetCommittedDataReply(rpc *GetCommittedDataReply) {
 		}
 	}
 }
-
-// // if something actually changed!
-// if updated {
-// 	for i := int(rpc.PreparedIndex)+1; i < len(r.log); i++ {
-// 		r.inLog.remove(UniqueCommand{senderId: r.log[i].SenderId, time: r.log[i].Timestamp})
-// 		// removedEntries = append(removedEntries, r.log[i])
-// 		// if !r.seenBefore(r.log[i]) {
-// 		// 	r.pq.push(r.log[i])
-// 		// }
-// 		potentialEntries = append(potentialEntries, r.log[i])
-// 	}
-// 	r.log = r.log[:rpc.PreparedIndex+1]
-
-// 	for i := int(rpc.PreparedIndex)+1; i < len(rpc.Entries) + firstEntryIndex; i++ {
-// 		r.inLog.add(UniqueCommand{senderId: rpc.Entries[i-firstEntryIndex].SenderId, time: rpc.Entries[i-firstEntryIndex].Timestamp})
-// 	}
-// 	r.log = append(r.log, rpc.Entries[int(rpc.PreparedIndex)+1-firstEntryIndex:]...)
-// } else {
-// 	for i := int(rpc.PreparedIndex)+1; i < len(rpc.Entries) + firstEntryIndex; i++ {
-// 		// if !r.seenBefore(rpc.Entries[i-firstEntryIndex]) {
-// 		// 	r.pq.push(rpc.Entries[i-firstEntryIndex])
-// 		// }
-// 		potentialEntries = append(potentialEntries, rpc.Entries[i-firstEntryIndex])
-// 	}
-// }
-
-// TODO: if updated, append their log to ours
-// update ben or index based on new vs old commit index
-
-// if i == logLength && i - firstEntryIndex < len(rpc.Entries) {
-// 	r.log = append(r.log, rpc.Entries[i-firstEntryIndex:]...)
-// }
-
-// if benOrIndexChanged {
-// 	r.benOrIndex = newCommitPoint+1
-// 	r.benOrState.benOrStage = Stopped
-// 	r.benOrState.biasedCoin = false
-// 	if (r.benOrIndex < len(r.log)) {
-// 		r.log[r.benOrIndex].BenOrActive = True
-// 	} else {
-// 		r.log[r.benOrIndex] = benOrUncommittedLogEntry(len(r.log))
-// 	}
-// }
-
-// for i := currentCommitPoint+1; i <= len(r.log); i++ {
-// 	r.pq.remove(r.log[i])
-// }
-
-// can only have one entry with term == -1 after commit point
-// if r.log[i].Term != rpc.Entries[i-firstEntryIndex].Term {
-// 	if r.benOrIndex == i {
-// 		if r.log[i].Term < rpc.Entries[i-firstEntryIndex].Term {
-// 			removedEntries = append(removedEntries, r.log[i])
-// 			r.log[i] = rpc.Entries[i-firstEntryIndex]
-// 		}
-
-// 		// if BenOrActive is false, then this entry has for sure been committed already since
-// 		// rpc is sending back data only up to replicatedIndex
-// 		if rpc.Entries[i-firstEntryIndex].Term != -1 && i <= newPreparedPoint {
-// 			benOrIndexChanged = true
-// 			continue
-// 		}
-
-// 		if r.benOrState.benOrStage == Stopped {
-// 			// don't need to do anything else
-// 		} else if r.benOrState.benOrStage == Broadcasting {
-// 			r.benOrState.biasedCoin = true
-// 		} else { // r.benOrStatus == BenOrRunning
-// 			continue // Ben Or needs to keep running, although it will commit the value we've just added
-// 		}
-// 	} else if rpc.Entries[i-firstEntryIndex].BenOrActive == True {
-// 		// use current entry instead
-// 		continue
-// 	} else {
-// 		r.log = append(r.log[:i], rpc.Entries[i-firstEntryIndex:]...)
-// 		break
-// 	}
-// }

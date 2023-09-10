@@ -641,7 +641,6 @@ func main() {
 						connected := false
 						select {
 						case e := <-configReplyChan:
-							// fmt.Println("asdf Config request reply has type", e.Type, "from replica", e.ReplicaId, "with data", e.Data)
 							if e.Type == genericsmrproto.CONNECT_REPLY && e.Data == 1 {
 								connected = true
 							}

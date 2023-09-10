@@ -19,20 +19,11 @@ type network struct {
 
 var CLIENTID uint32 = 0
 
-// func (net *network) Connect(i, j int) {
-// 	net.conn[i][j].Connect()
-// 	net.conn[j][i].Connect()
-// }
-
 func (cfg *config) connect(i int) {
 	for j := 0; j < cfg.n; j++ {
 		if i != j && cfg.connectedToNet[j] {
-			// cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
-			// cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
 			cfg.replicas[i].Connected[j] = true
 			cfg.replicas[j].Connected[i] = true
-			// cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
-			// cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
 		}
 	}
 	cfg.connectedToNet[i] = true
@@ -42,12 +33,8 @@ func (cfg *config) connect(i int) {
 func (cfg *config) disconnect(i int) {
 	for j := 0; j < cfg.n; j++ {
 		if i != j {
-			// cfg.replicas[i].TestingState.IsConnected.Mu.Lock()
-			// cfg.replicas[j].TestingState.IsConnected.Mu.Lock()
 			cfg.replicas[i].Connected[j] = false
 			cfg.replicas[j].Connected[i] = false
-			// cfg.replicas[i].TestingState.IsConnected.Mu.Unlock()
-			// cfg.replicas[j].TestingState.IsConnected.Mu.Unlock()
 		}
 	}
 	cfg.connectedToNet[i] = false
@@ -174,12 +161,6 @@ func (cfg *config) listen() {
 		cfg.repExecutions[replica] = append(cfg.repExecutions[replica], cmd)
 		// dlog.Println("Got execution", cmd.OpId, "from replica", replica, "after append")
 		// idx := len(cfg.repExecutions[replica]) - 1
-
-		// for i := 0; i < cfg.n; i++ {
-		// 	if idx < len(cfg.repExecutions[i]) && cfg.repExecutions[i][idx] != cmd {
-		// 		cfg.t.Fatal("Replica ", replica, " executed ", cmd, " at index ", idx, " but replica ", i, " executed ", cfg.repExecutions[i][idx])
-		// 	}
-		// }
 	}
 }
 

@@ -2,7 +2,6 @@ package hydrofoil
 
 import (
 	"container/heap"
-	"log"
 	"sort"
 	"state"
 )
@@ -86,21 +85,8 @@ func (extPQ *ExtendedPriorityQueue) pop() Entry {
 }
 
 func (extPQ *ExtendedPriorityQueue) peek() Entry {
-	asdf := extPQ.pop()
-	extPQ.push(asdf)
-
-	if asdf != extPQ.pq[0].entry {
-		log.Fatal("asdf != extPQ.pq[0].entry")
-	}
-	
 	return extPQ.pq[0].entry
 }
-
-// func (extPQ *ExtendedPriorityQueue) clearLeaderEntries(){
-// 	for len(extPQ.pq) > 0 && extPQ.peek().entry.Term != -1 {
-// 		extPQ.pop()
-// 	}
-// }
 
 func (extPQ *ExtendedPriorityQueue) popAll() []Entry {
 	var list []Entry
@@ -185,40 +171,3 @@ func (pq *PriorityQueue) update(item *Item, entry Entry, request state.Command) 
 func equalEntry(a, b Entry) bool {
 	return a.ServerId == b.ServerId && a.Timestamp == b.Timestamp
 }
-
-// // This example creates a PriorityQueue with some items, adds and manipulates an item,
-// // and then removes the items in priority order.
-// func main() {
-// 	// Some items and their priorities.
-// 	items := map[string]int{
-// 		"banana": 3, "apple": 2, "pear": 4,
-// 	}
-
-// 	// Create a priority queue, put the items in it, and
-// 	// establish the priority queue (heap) invariants.
-// 	pq := make(PriorityQueue, len(items))
-// 	i := 0
-// 	for value, priority := range items {
-// 		pq[i] = &Item{
-// 			value:    value,
-// 			priority: priority,
-// 			heapIndex:    i,
-// 		}
-// 		i++
-// 	}
-// 	heap.Init(&pq)
-
-// 	// Insert a new item and then modify its priority.
-// 	item := &Item{
-// 		value:    "orange",
-// 		priority: 1,
-// 	}
-// 	heap.Push(&pq, item)
-// 	pq.update(item, item.value, 5)
-
-// 	// Take the items out; they arrive in decreasing priority order.
-// 	for pq.Len() > 0 {
-// 		item := heap.Pop(&pq).(*Item)
-// 		fmt.Printf("%.2d:%s ", item.priority, item.value)
-// 	}
-// }

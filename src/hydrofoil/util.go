@@ -121,22 +121,6 @@ func (r *Replica) benOrRunning() bool {
 		r.benOrState.benOrStage == StageTwo)
 }
 
-// func (r *Replica) addNewEntry(newLogEntry Entry) {
-// 	if r.leaderState.isLeader {
-// 		newLogEntry.Term = int32(r.term)
-// 		if r.benOrIndex == len(r.log) - 1 && r.benOrRunning() {
-// 			newLogEntry.Index = int32(len(r.log)) - 1
-// 			r.log[len(r.log)-1] = newLogEntry
-// 		} else {
-// 			newLogEntry.Index = int32(len(r.log))
-// 			r.log = append(r.log, newLogEntry)
-// 		}
-// 		r.inLog.add(UniqueCommand{senderId: newLogEntry.SenderId, time: newLogEntry.Timestamp})
-// 	} else {
-// 		r.pq.push(newLogEntry)
-// 	}
-// }
-
 type ServerTimer struct {
 	active bool // true if the timer is currently active
 	timer *time.Timer
@@ -214,69 +198,6 @@ func (r *Replica) isLogMoreUpToDate(rpc RPC) uint8 {
 	return EquallyUpToDate
 }
 
-// func benOrUncommittedLogEntry() Entry {
-// 	return randomizedpaxosproto.Entry{
-// 		Data: state.Command{},
-// 		SenderId: -1,
-// 		Term: -1, // term -1 means that this is a Ben-Or+ entry that hasn't yet committed
-// 		Index: -1,
-// 		// BenOrActive: True,
-// 		Timestamp: -1,
-// 		// FromLeader: False,
-// 	}
-// }
-
-
-// Returns true if term <= newTerm
-// func (r *Replica) handleIncomingRPCTerm (newTerm int) bool {
-// 	if newTerm < r.term {
-// 		// ignore these entries
-// 		return false
-// 	}
-// 	if newTerm > r.term {
-// 		r.term = newTerm
-
-// 		if (r.leaderState.isLeader) {
-// 			clearTimer(r.heartbeatTimer)
-// 		}
-
-// 		r.leaderState = LeaderState{
-// 			isLeader: false,
-// 			repNextIndex: make([]int, r.N),
-// 			repCommitIndex: make([]int, r.N),
-// 			repPreparedIndex: make([]int, r.N),
-// 		}
-// 	}
-
-// 	return true
-// }
-
-// // Returns true if term <= newTerm
-// func (r *Replica) handleReplicateEntriesRPCTerm (newTerm int) bool {
-// 	if newTerm < r.term {
-// 		// ignore these entries
-// 		return false
-// 	}
-// 	if newTerm > r.term {
-// 		r.term = newTerm
-
-// 		if (r.leaderState.isLeader) {
-// 			clearTimer(r.heartbeatTimer)
-// 		}
-
-// 		r.leaderState = LeaderState{
-// 			isLeader: false,
-// 			repNextIndex: make([]int, r.N),
-// 			repCommitIndex: make([]int, r.N),
-// 			repPreparedIndex: make([]int, r.N),
-// 		}
-// 	}
-// 	timeout := rand.Intn(r.electionTimeout/2) + r.electionTimeout/2
-// 	setTimer(r.electionTimer, time.Duration(timeout)*time.Millisecond)
-
-// 	return true
-// }
-
 func entryEqual (e1 Entry, e2 Entry) bool {
 	return e1.ServerId == e2.ServerId && e1.Timestamp == e2.Timestamp
 }
@@ -296,21 +217,3 @@ func commandToString (log []state.Command) string {
 	}
 	return s
 }
-
-// func (r *Replica) addEntryToLogIndex (entry Entry, idx int) {
-// 	if r.inLog.is
-	
-// 	if idx == len(r.log) {
-// 		r.log = append(r.log, entry)
-// 	} else {
-// 		r.log[idx] = entry
-// 	}
-// }
-
-// func (r *Replica) addToPQ (entry Entry) {
-// 	if r.seenBefore(entry) {
-// 		return
-// 	}
-// 	r.inLog.add(UniqueCommand{senderId: entry.SenderId, time: entry.Timestamp})
-// 	r.pq.push(entry)
-// }

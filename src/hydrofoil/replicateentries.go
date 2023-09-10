@@ -141,15 +141,6 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 		clearTimer(r.benOrResendTimer)
 	}
 
-	// if r.benOrState.benOrStage == Broadcasting && r.commitIndex + 1 < len(r.log) && 
-	// 	r.benOrState.benOrBroadcastEntry != r.log[r.commitIndex + 1] {
-	// 	r.benOrState.biasedCoin = true
-	// 	dlog.Println("Replica", r.Id, "set biased coin to true")
-	// }
-
-	// fmt.Println("Replica", r.Id, "type 4", time.Now().UnixMicro() - startTime)
-	// startTime = time.Now().UnixMicro()
-
 	entries := make([]Entry, 0)
 	if rpc.CommitIndex + 1 < int32(len(r.log)) {
 		entries = r.log[rpc.CommitIndex + 1:]
@@ -181,16 +172,6 @@ func (r *Replica) handleReplicateEntries(rpc *ReplicateEntries) {
 
 	// fmt.Println("Replica", r.Id, "type 5", time.Now().UnixMicro() - startTime)
 }
-
-
-
-// ISSUE: Replica 4 is the leader, and commits up to idx 100. It updates its commit index to 100, but the other replicas don't before replica 4 is disconnected.
-// Now, replica 2 is elected leader, and adds a bunch of entries to its log. It updates its commit index to 110, but the other replicas don't before replica 2 is disconnected.
-// Replica 4 is reelected leader (since it has a higher commitindex), and then tells the other replicas to change the entries 100 to 110. This is a problem!!!!
-
-// Potential solution: when you are elected, you only compare LeaderTerm and index. You can be the leader with a lower commitIndex.
-// When updating your log, you only replace your log with that from the rpc, if entries up to commitindex are different or if your LeaderTerm is lower.
-
 
 func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 	r.handleIncomingTerm(rpc)
@@ -240,16 +221,6 @@ func (r *Replica) handleReplicateEntriesReply (rpc *ReplicateEntriesReply) {
 
 		r.leaderState.repMatchIndex[rpc.SenderId] = int(rpc.NewRequestedIndex) - 1
 		r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
-		// if rpc.Success == True {
-		// 	r.leaderState.repMatchIndex[rpc.SenderId] = int(rpc.NewRequestedIndex) - 1
-		// 	r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
-		// 	dlog.Println("BRUH", len(r.log))
-		// } else {
-		// 	if rpc.NewRequestedIndex > 0 { // otherwise, the replica is actually just telling us to update ourselves first
-		// 		r.leaderState.repMatchIndex[rpc.SenderId] = int(rpc.NewRequestedIndex) - 1
-		// 		r.leaderState.repNextIndex[rpc.SenderId] = int(rpc.NewRequestedIndex)
-		// 	}
-		// }
 	}
 }
 
@@ -261,8 +232,6 @@ func (r *Replica) broadcastReplicateEntries() {
 		if int32(i) != r.Id {
 			// dlog.Println(r.Id, "HUHUHUHUHUH1", r.leaderState.repNextIndex)
 			prevLogIndex := int32(r.leaderState.repNextIndex[i]) - 1
-			// dlog.Println("server", r.Id, "has data", logToString(r.log), "and is sending to", i, "with prevLogIndex", prevLogIndex, "and nextIndex", r.leaderState.repNextIndex[i], "and matchIndex", r.leaderState.repMatchIndex[i], "and commit Index", r.commitIndex)
-			// dlog.Println("HUHUHUHUHUH2")
 
 			args := &ReplicateEntries{
 				SenderId: r.Id, Term: int32(r.term), CommitIndex: int32(r.commitIndex), LeaderTerm: int32(r.leaderTerm), LogLength: int32(len(r.log)),

@@ -85,9 +85,6 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 	if r.isLogMoreUpToDate(rpc) == LessUpToDate {
 		r.updateLogFromRPC(rpc)
 
-		// // stop being a candidate
-		// r.candidateState = emptyCandidateState
-		// return
 	} else {
 		for _, v := range(rpc.Entries) {
 			if !r.seenBefore(v) { r.pq.push(v) }
@@ -96,18 +93,13 @@ func (r *Replica) handleRequestVoteReply (rpc *RequestVoteReply) {
 		for _, v := range(rpc.PQEntries) {
 			if !r.seenBefore(v) { r.pq.push(v) }
 		}
-
-		// dlog.Println("Replica", r.Id, "pq values1", logToString(r.pq.extractList()))
 	}
 
 	if rpc.VoteGranted == True {
 		r.candidateState.votesReceived++
 	}
 
-	// dlog.Println("Replica", r.Id, "term", r.term, "um2", r.candidateState.votesReceived, rpc.VoteGranted)
-
 	if r.candidateState.votesReceived > r.N/2 {
-		// become the leader
 		r.becomeLeader()
 	}
 }

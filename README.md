@@ -1,71 +1,45 @@
-Copilot
+Hydrofoil
 ======
 
 
-### What is Copilot?
-Copilot replication is the first 1-slowdown-tolerant consensus protocol: it delivers normal latency despite the slowdown of any 1 replica.
+### Introduction
+Hydrofoil is a new linearizable replicated state machine (RSM) distributed algorithm that uses a combination of leader-based and leaderless protocols. This allows Hydrofoil to maintain the high throughput and reliability of leader-based RSMs, while reducing downtime and slowdowns when leaders fail by automatically switching to a leaderless algorithm.
 
-### What makes Copilot novel? 
-No existing consensus protocol is slowdown-tolerant: a single slow replica can sharply increase their latency. 
-Copilot is the first 1-slowdown-tolerant consensus protocol. 
-It avoids slowdowns using two distinguished replicas, the pilot and copilot.
-Its pilot and copilot both receive, order, execute, and reply to all client commands. 
-It uses this proactive redundancy and a fast takeover mechanism that allows a fast pilot to safely complete 
-the work of a slow pilot to provide slowdown tolerance. 
+### Details
+Hydrofoil design is influenced by two other algorithms: Raft, a leader-based RSM that serves as the basis of many distributed databases in use today, and Ben-Or, a theoretical leaderless consensus algorithm that can operate even under asynchronous network conditions. Hydrofoil runs variations of both algorithms (which we denote as Raft+ and Ben-Or+ respectively) in parallel. Under normal network conditions, the Raft+ takes precedence, allowing for fast commits with high throughput even in georeplicated scenarios. When the leader is slow or offline, Ben-Or+ automatically takes over, enabling nearly uninterrupted performance during times when ordinary leader-based RSMs would need to trigger a re-election. The result is a linearizable RSM that is fault tolerant up to a minority of replica failures, with high throughput and low latency across a wide range of scenarios.
 
-It has two optimizations&mdash;ping-pong batching and null dependency elimination&mdash;that improve its performance 
-when there are 0 and 1 slow pilots respectively. 
-Despite its redundancy, Copilot replication's performance is competitive 
-with existing consensus protocols when no replicas are slow. 
-When a replica is slow, Copilot is the only consensus protocol that avoids high latencies for client commands.
+A full description of the protocol, and a largely complete proof can be found [here](Hydrofoil.pdf).
 
+### Running the Code
+Running Hydrofoil requires three components: a coordinator/master, any (odd) number of servers/replicas for replication, and a client to send messages to the RSM.
 
-### How does Copilot work?
+#### Build
+Run `make` to build the master, replicas, and client using the given [Makefile](Makefile).
 
-Our [OSDI 2020 paper](https://www.usenix.org/conference/osdi20/presentation/ngo) describes the motivation, design, implementation, and evaluation of Copilot.
+#### Running
+Use [runAll.sh](runAll.sh) to run Hydrofoil. Use [killall.sh](killall.sh) to terminate the experiment. 
 
-### What is Latent Copilot?
-Latent Copilot, a variant of Copilot, is another design and implementation of a 1-slowdown-tolerant consensus protocol.
-Latent Copilot operates with one active pilot, which actively proposes commands, and one latent pilot,
-which proposes commands only when they have not been committed by the active pilot in a timely manner. 
-In this way, Latent Copilot achieves an intermediate tradeoff 
-between MultiPaxos and Copilot in terms of throughput and slowdown tolerance.
+#### Tests
+To run tests using a simulated connection, `cd` to `src/hydrofoil/` and run `go test -run Test`.
 
-Latent Copilot has different mechanisms to determine when a pilot should switch
-its mode if it suspects the other pilot is continually slow or fast.
-To learn about the progress of the other pilot, a pilot uses additional metadata embedded in the ordering messages to
-learn about the status of the commands from the replicas.
-
-For more details about Latent Copilot, please refer to Ngo's Ph.D. dissertation.
-
-### What is in this repository?
-
-This repository contains the Go implementations of:
-
+### Repository Details
+This repo contains implementations of the following distributed protocols
+* Hydrofoil
+* Raft+
+* Ben-Or+
 * Copilot
-
 * Latent Copilot
-
 * EPaxos
-
-* (classic) Paxos
-
+* (Classic) Paxos
 * Mencius
-
 * Generalized Paxos
 
-The implementations of EPaxos, MultiPaxos, Mencius, and Generalized Paxos were created by Iulian Moraru, David G. Andersen, and Michael Kaminsky as part of the [EPaxos project](https://github.com/efficient/epaxos).
+It is a fork of the [Copilot project](https://github.com/princeton-sns/copilot), which was developed by Khiem Ngo and Wyatt Lloyd. The implementations of EPaxos, MultiPaxos, Mencius, and Generalized Paxos were written by Iulian Moraru, David G. Andersen, and Michael Kaminsky respectively and come from the [EPaxos project](https://github.com/efficient/epaxos).
 
-The struct marshaling and unmarshaling code was generated automatically using
-the tool available at: https://code.google.com/p/gobin-codegen/
-
-
-AUTHORS:
-
-Khiem Ngo -- Princeton University
-
-Siddhartha Sen -- Microsoft Research
-
-Wyatt Lloyd -- Princeton University
+The [gobin-codegen](https://github.com/efficient/gobin-codegen) tool was used to generate marshaling and unmarshaling functions.
 
 
+### About this Project
+This work serves as my senior thesis for my undergraduate computer science degree at Princeton University. It was certainly a stressful but exciting experience!
+
+I would like to thank Professor Wyatt Lloyd for being an amazing advisor throughout this entire process!
